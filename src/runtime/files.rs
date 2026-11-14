@@ -281,6 +281,16 @@ impl SaveFs {
         self.sandboxed(path).is_file() || (self.real_allowed(path) && self.real(path).is_file())
     }
 
+    /// A folder exists (in the save folder, or at the real location).
+    pub fn dir_exists(&self, path: &str) -> bool {
+        self.sandboxed(path).is_dir() || (self.real_allowed(path) && self.real(path).is_dir())
+    }
+
+    /// Create a folder (inside the save folder).
+    pub fn create_dir(&self, path: &str) -> std::io::Result<()> {
+        std::fs::create_dir_all(self.sandboxed(path))
+    }
+
     /// Deletes only the sandboxed copy; original game files are never touched.
     pub fn delete(&self, path: &str) {
         let _ = std::fs::remove_file(self.sandboxed(path));

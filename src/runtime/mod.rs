@@ -214,6 +214,9 @@ pub struct Runtime {
     pub unimplemented: RefCell<BTreeMap<String, u64>>,
     /// Sound files played by name ("play sample file"): handle FILE_SOUND_BASE + index.
     pub file_sounds: Vec<(String, std::sync::Arc<[u8]>)>,
+    /// "Execute external program" requests (program path, command line), carried out by
+    /// the viewer: launcher games use it to start the real game.
+    pub launch_requests: Vec<(std::path::PathBuf, String)>,
     /// Frames entered, in order (for diagnostics).
     pub frame_log: Vec<usize>,
     /// Sandboxed file access for saves.
@@ -312,6 +315,7 @@ impl Runtime {
             platformers: HashSet::default(),
             unimplemented: RefCell::new(BTreeMap::new()),
             file_sounds: Vec::new(),
+            launch_requests: Vec::new(),
             frame_log: Vec::new(),
             files,
             exts: HashMap::default(),

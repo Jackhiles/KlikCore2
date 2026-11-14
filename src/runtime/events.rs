@@ -1128,6 +1128,16 @@ impl Runtime {
         let _ = input;
         match (a.object_type, a.num) {
             (SYS, 0) => {}
+            // Execute external program (path, command line, flags).
+            (SYS, 22) => {
+                let path = self.eval_param(a, 0, sel, None).as_string();
+                let args = self.eval_param(a, 1, sel, None).as_string();
+                if !path.trim().is_empty() {
+                    let p = std::path::PathBuf::from(path.trim().replace('\\', std::path::MAIN_SEPARATOR_STR));
+                    let p = if p.is_absolute() { p } else { self.files.app_dir.join(p) };
+                    self.launch_requests.push((p, args));
+                }
+            }
             (SYS, 3) | (SYS, 27..=30) => {
                 let i = self.param_index(a, 0, sel, None);
                 let v = self.eval_param(a, 1, sel, None);

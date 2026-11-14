@@ -10,6 +10,7 @@ mod gsx;
 mod inert;
 mod ini;
 mod joystick;
+mod kcfile;
 mod kcarray;
 
 use super::files::SaveFs;
@@ -49,6 +50,7 @@ pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dy
         "controlime" => Some(Box::new(inert::Inert)),
         "gstorex" => Some(Box::new(gsx::GlobalStore::with_store(shared.gsx.clone()))),
         "kcclock" => Some(Box::new(clock::Clock)),
+        "kcfile" => Some(Box::new(kcfile::FileObject)),
         "kcwctrl" | "drpc" | "hiddenproperties" | "android" | "inappandroid" | "xna" => {
             Some(Box::new(inert::Inert))
         }

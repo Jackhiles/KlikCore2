@@ -775,6 +775,8 @@ struct Viewer {
     hud_font: Option<Font>,
     /// F12 pressed: save a screenshot after this frame is drawn.
     screenshot_requested: bool,
+    /// Screenshot / scripted test run: "run program" is only logged.
+    test_run: bool,
     running: bool,
     tick_acc: f64,
     input: Input,
@@ -1104,7 +1106,36 @@ impl Viewer {
             self.tick_acc -= dt;
             self.step();
         }
+        for (path, args) in std::mem::take(&mut self.rt.launch_requests) {
+            self.launch_program(&path, &args);
+        }
         self.log_unimplemented();
+    }
+
+    /// The game asked to run another program. A Clickteam game opens in a new Rekindle
+    /// window (launchers that start the real game); on Windows anything else starts as the
+    /// original runtime would start it.
+    fn launch_program(&mut self, path: &std::path::Path, args: &str) {
+        if self.test_run {
+            self.log.line(&format!("test run: not starting {} {args}", path.display()));
+            return;
+        }
+        let dir = path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+        let is_game = path.is_file() && crate::ctf_loader::GameData::load(path).is_ok();
+        let result = if is_game {
+            std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg(path).current_dir(&dir).spawn())
+        } else if cfg!(windows) && path.is_file() {
+            std::process::Command::new(path).args(args.split_whitespace()).current_dir(&dir).spawn()
+        } else {
+            Err(std::io::Error::other("not a Clickteam game and can't be run here"))
+        };
+        match result {
+            Ok(_) => self.log.line(&format!("started {} {}", if is_game { "game" } else { "program" }, path.display())),
+            Err(e) => {
+                self.log.line(&format!("could not start {}: {e}", path.display()));
+                self.notice = Some((format!("Could not start {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), get_time() + 4.0));
+            }
+        }
     }
 
     /// One game tick with the gathered input. A failure inside the game logic is logged
@@ -1745,6 +1776,7 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         stats: hud::HudStats::default(),
         hud_font: load_ttf_font_from_bytes(crate::launcher::FONT_REGULAR).ok(),
         screenshot_requested: false,
+        test_run: opts.screenshot.is_some(),
         running: opts.run_events,
         tick_acc: 0.0,
         input: Input::default(),

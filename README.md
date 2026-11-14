@@ -62,6 +62,7 @@ Extension objects (`.mfx` files) are reimplemented natively in `src/runtime/ext/
 - **Array** (`kcarray`): numeric or text arrays in up to three dimensions (growing on write), indexes, read / write
   at X / X,Y / X,Y,Z, clear, and load / save through the save sandbox.
 - **Control X** (`ctrlx`): "key pressed" by key name, for games that let players rebind keys.
+- **File** (`kcfile`): file / folder exists, create a folder or an empty file (in the save sandbox), and the user's Documents folder.
 - **Joypad object** (`joystick`): reported as a connected controller with nothing pressed, which keeps such games'
   keyboard controls working; gamepads still work through Rekindle's own controller support.
 - **ControlIME** (Japanese text input mode) is accepted and does nothing.
@@ -84,7 +85,7 @@ the game's own images (cached in `%APPDATA%\Rekindlert\`; *Refresh artwork* in 
 Type to search; arrow keys / D-pad move, Enter / A plays, Y opens settings. **+ Add** adds a game file, a folder of
 games (also `rekindle --add FILE_OR_FOLDER`) or Steam games; the **...** menu has Steam games, the play log and the data
 folder. A game's own **...** menu has Add to Steam, Desktop shortcut (also `rekindle GAME --shortcut`), Mods folder,
-Open game folder and Remove from library (the files are untouched). Double-click a cover to play. Only one copy
+Open game folder and Remove from library (the files are untouched). Double-click a cover to play. When a game runs another program (launchers that start the real game), a Clickteam game opens in a new Rekindle window; on Windows other programs start as they would with the original runtime. Only one copy
 of a game runs at a time, and while a game started from the launcher is running, the launcher ignores the controller.
 `REKINDLE_LAUNCHER_SHOT=file.png` saves the launcher window once artwork has loaded and exits (for testing; `REKINDLE_LAUNCHER_PAGE=settings|steam|log` opens a page first).
 
