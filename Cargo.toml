@@ -40,8 +40,14 @@ embed-resource = "3"
 
 # Native file dialogs. On Linux (e.g. Steam Deck) the desktop's own picker
 # (kdialog / zenity) is used instead, which avoids GTK / Wayland build dependencies.
-[target.'cfg(not(target_os = "linux"))'.dependencies]
+# Android has no file dialogs (games are found in a folder instead).
+[target.'cfg(not(any(target_os = "linux", target_os = "android")))'.dependencies]
 rfd = "0.15"
+
+# Android (built as a shared library by scripts/android/build.py): cpal's audio backend
+# needs the Java VM and activity, which come from miniquad.
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-context = "0.1"
 
 [profile.dev]
 # Decompressing large image banks is painfully slow without optimisation.

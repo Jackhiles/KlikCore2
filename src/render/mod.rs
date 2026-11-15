@@ -814,6 +814,9 @@ fn vk_code(k: KeyCode) -> Option<u16> {
         Space => 0x20,
         Enter | KpEnter => 0x0D,
         Escape => 0x1B,
+        // Android's Back button.
+        #[cfg(target_os = "android")]
+        Back => 0x1B,
         Backspace => 0x08,
         Tab => 0x09,
         LeftShift | RightShift => 0x10,
@@ -1122,6 +1125,13 @@ impl Viewer {
         }
         let dir = path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
         let is_game = path.is_file() && crate::ctf_loader::GameData::load(path).is_ok();
+        // Android has one window and no processes: the game starts when this one ends.
+        #[cfg(target_os = "android")]
+        if is_game {
+            self.log.line(&format!("game {} starts when this one ends", path.display()));
+            *NEXT_GAME.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.to_path_buf());
+            return;
+        }
         let result = if is_game {
             std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg(path).current_dir(&dir).spawn())
         } else if cfg!(windows) && path.is_file() {
@@ -1705,6 +1715,16 @@ pub fn claim_single_instance(game_path: &std::path::Path) -> bool {
     }
 }
 
+/// Android: a game another game asked to start (see `launch_program`).
+#[cfg(target_os = "android")]
+static NEXT_GAME: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// Android: take the game a finished game asked to start, if any.
+#[cfg(target_os = "android")]
+pub fn take_next_game() -> Option<PathBuf> {
+    NEXT_GAME.lock().unwrap_or_else(|e| e.into_inner()).take()
+}
+
 /// Items drawn (after culling), for REKINDLE_PROFILE.
 static DRAWN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
@@ -1880,7 +1900,17 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
     let mut walk_frame = 0usize;
     // REKINDLE_PROFILE: average time per frame in each part of the loop, every few seconds.
     let mut frame_profile = std::env::var_os("REKINDLE_PROFILE").map(|_| FrameProfile::default());
+    // Android: Back is Escape for the game; pressed twice within a second it quits to the launcher.
+    #[cfg(target_os = "android")]
+    let mut last_back = f64::NEG_INFINITY;
     loop {
+        #[cfg(target_os = "android")]
+        if is_key_pressed(KeyCode::Back) {
+            if get_time() - last_back < 1.0 {
+                break;
+            }
+            last_back = get_time();
+        }
         if let Some(ms) = walk {
             if get_time() >= walk_next {
                 if walk_frame >= v.rt.game.frames.len() {

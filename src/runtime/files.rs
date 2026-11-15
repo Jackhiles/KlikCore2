@@ -72,7 +72,35 @@ pub fn save_root_for(game: &Path, name: &str) -> PathBuf {
     }
 }
 
+/// Android: the app's internal and external (USB-visible) files folders, from the activity.
+#[cfg(target_os = "android")]
+static ANDROID_DIRS: std::sync::OnceLock<(Option<PathBuf>, Option<PathBuf>)> = std::sync::OnceLock::new();
+
+/// Android: remember the app's files folders (`Context.getFilesDir()` / `getExternalFilesDir()`).
+#[cfg(target_os = "android")]
+pub fn set_android_dirs(internal: Option<PathBuf>, external: Option<PathBuf>) {
+    let _ = ANDROID_DIRS.set((internal, external));
+}
+
+/// Android: the app's external files folder (`Android/data/<package>/files`), which a PC
+/// can reach over USB.
+#[cfg(target_os = "android")]
+pub fn android_external_dir() -> Option<PathBuf> {
+    ANDROID_DIRS.get().and_then(|d| d.1.clone())
+}
+
+/// Android: `<app files dir>/Rekindle`.
+#[cfg(target_os = "android")]
+pub fn data_root() -> PathBuf {
+    let base = ANDROID_DIRS
+        .get()
+        .and_then(|d| d.0.clone())
+        .unwrap_or_else(|| PathBuf::from("/data/data/com.takobyte.rekindle/files"));
+    base.join("Rekindle")
+}
+
 /// `%APPDATA%\Rekindle` (or the platform's data folder): saves, settings and the launcher library.
+#[cfg(not(target_os = "android"))]
 pub fn data_root() -> PathBuf {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
@@ -85,6 +113,7 @@ pub fn data_root() -> PathBuf {
 }
 
 /// Saves made before the project was renamed live in `fusion-rt`; move them over once.
+#[cfg(not(target_os = "android"))]
 fn migrate_old_saves(base: &Path, root: &Path) {
     let old = base.join("fusion-rt");
     if old.is_dir() && !root.exists() {

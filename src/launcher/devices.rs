@@ -70,6 +70,21 @@ impl Launcher {
         }
     }
 
+    /// A game file's save folder name (what the sync service calls the game).
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(super) fn save_folder_of(&self, game: &std::path::Path) -> Option<String> {
+        let title = self.entries.iter().find(|e| e.path == game).map(|e| e.title.clone()).unwrap_or_default();
+        crate::runtime::files::save_root_for(game, &title).file_name().map(|n| n.to_string_lossy().into_owned())
+    }
+
+    /// Android: the game running inside the launcher's window (None when it ends).
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(super) fn set_sync_running(&self, folder: Option<String>) {
+        if let Some(svc) = &self.sync {
+            svc.shared.lock().unwrap_or_else(|e| e.into_inner()).running = folder.into_iter().collect();
+        }
+    }
+
     /// The pairing prompt, over whatever is on screen. Returns true while it's shown.
     pub(super) fn draw_pair_prompt(&mut self, sw: f32, sh: f32) -> bool {
         let Some(svc) = self.sync.clone() else { return false };

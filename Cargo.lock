@@ -2020,6 +2020,7 @@ dependencies = [
  "jpeg-decoder",
  "macroquad",
  "memmap2",
+ "ndk-context",
  "png",
  "rand",
  "rfd",

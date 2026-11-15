@@ -16,6 +16,25 @@ pub fn data_dir() -> PathBuf {
     crate::runtime::files::data_root()
 }
 
+/// `<data dir>\games`: where games copied into Rekindle's own storage go (Steam copies,
+/// games sent from another device). On Android, games found here are added on start.
+pub fn games_storage_dir() -> PathBuf {
+    data_dir().join("games")
+}
+
+/// Folders scanned for new games when the launcher starts (Android, which has no file
+/// picker): the games storage folder and, on Android, `Android/data/<package>/files/games`,
+/// which a PC can copy into over USB.
+pub fn game_folders() -> Vec<PathBuf> {
+    #[allow(unused_mut)]
+    let mut v = vec![games_storage_dir()];
+    #[cfg(target_os = "android")]
+    if let Some(ext) = crate::runtime::files::android_external_dir() {
+        v.push(ext.join("games"));
+    }
+    v
+}
+
 fn library_file() -> PathBuf {
     data_dir().join("library.txt")
 }
