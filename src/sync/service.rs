@@ -346,9 +346,10 @@ impl Service {
         let result = match r {
             Ok(peer) => {
                 let name = peer.name.clone();
-                s.peers.retain(|p| p.id != peer.id);
-                s.peers.push(peer);
-                identity::save_peers(&s.peers);
+                s.peers = identity::update_peers(|peers| {
+                    peers.retain(|p| p.id != peer.id);
+                    peers.push(peer);
+                });
                 Ok(name)
             }
             Err(e) => Err(e),
@@ -459,8 +460,7 @@ impl Service {
 
     pub fn unpair(&self, peer: &str) {
         let mut s = lock(&self.shared);
-        s.peers.retain(|p| p.id != peer);
-        identity::save_peers(&s.peers);
+        s.peers = identity::update_peers(|peers| peers.retain(|p| p.id != peer));
         s.status.remove(peer);
         let _ = std::fs::remove_file(identity::dir().join(format!("state-{peer}.txt")));
     }
@@ -518,10 +518,15 @@ impl Service {
             };
             sh.status.insert(peer.clone(), msg);
             if r.is_ok() {
-                if let Some(p) = sh.peers.iter_mut().find(|p| p.id == peer) {
-                    p.last_sync = identity::now_secs();
-                }
-                identity::save_peers(&sh.peers);
+                let addr = sh.peers.iter().find(|p| p.id == peer).and_then(|p| p.last_addr);
+                sh.peers = identity::update_peers(|peers| {
+                    if let Some(p) = peers.iter_mut().find(|p| p.id == peer) {
+                        p.last_sync = identity::now_secs();
+                        if addr.is_some() {
+                            p.last_addr = addr;
+                        }
+                    }
+                });
             }
         });
     }

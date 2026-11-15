@@ -192,7 +192,7 @@ SURFACE_SCALE = """    // Rekindle: pixels of the view per pixel of the surface 
 
     void updateScale(int w, int h) {
         float density = getResources().getDisplayMetrics().density;
-        float s = uiScale ? Math.max(1.0f, Math.min(Math.min(w, h) / 540.0f, density)) : 1.0f;
+        float s = uiScale ? Math.max(1.0f, Math.min(Math.min(w, h) / 432.0f, density)) : 1.0f;
         scale = s;
         if (s > 1.0f) {
             getHolder().setFixedSize(Math.round(w / s), Math.round(h / s));

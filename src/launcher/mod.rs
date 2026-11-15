@@ -259,6 +259,11 @@ struct Launcher {
     unpair_confirm: Option<String>,
     /// Typing a device address on the Devices page.
     addr_input: Option<String>,
+    /// Where the current press / touch started, whether it became a drag (which scrolls
+    /// and cancels taps), and the scroll position when it started.
+    press_pos: Option<Vec2>,
+    dragging: bool,
+    drag_scroll: f32,
     /// Save folders of games running at the last check (to sync when they close).
     sync_running: Vec<String>,
     sync_started: bool,
@@ -323,6 +328,9 @@ impl Launcher {
             remote_games_for: None,
             unpair_confirm: None,
             addr_input: None,
+            press_pos: None,
+            dragging: false,
+            drag_scroll: 0.0,
             sync_running: Vec::new(),
             sync_started: false,
             #[cfg(target_os = "android")]
@@ -479,7 +487,43 @@ impl Launcher {
         let tw = self.bold_width(label, 16);
         let fg = if !enabled { MUTED } else if accent { Color::new(0.1, 0.06, 0.02, 1.0) } else { TEXT };
         self.bold_text(label, r.x + (r.w - tw) / 2.0, r.y + r.h / 2.0 + 6.0, 16, fg);
-        hover && is_mouse_button_pressed(MouseButton::Left)
+        self.tap(r)
+    }
+
+    /// A tap / click on `r`: pressed and released inside it, without dragging in between
+    /// (on a phone, starting a swipe on a button must not press it).
+    fn tap(&self, r: Rect) -> bool {
+        !self.block_input
+            && !self.dragging
+            && is_mouse_button_released(MouseButton::Left)
+            && self.press_pos.is_some_and(|p| r.contains(p))
+            && r.contains(Vec2::from(mouse_position()))
+    }
+
+    /// Track presses and drags: dragging vertically scrolls whatever page is open.
+    fn track_drag(&mut self) {
+        let m = Vec2::from(mouse_position());
+        if is_mouse_button_pressed(MouseButton::Left) {
+            self.press_pos = Some(m);
+            self.dragging = false;
+            self.drag_scroll = self.scroll;
+        }
+        if let Some(p) = self.press_pos {
+            if is_mouse_button_down(MouseButton::Left) && !self.block_input && p.y > HEADER_H && (m.y - p.y).abs() > 12.0 {
+                self.dragging = true;
+            }
+            if self.dragging {
+                self.scroll = self.drag_scroll - (m.y - p.y);
+            }
+        }
+    }
+
+    /// After a frame: a released press is over.
+    fn end_press(&mut self) {
+        if !is_mouse_button_down(MouseButton::Left) {
+            self.press_pos = None;
+            self.dragging = false;
+        }
     }
 
     fn icon(&mut self, game: &Path) -> Option<Texture2D> {
@@ -617,6 +661,7 @@ impl Launcher {
         clear_background(BG);
         let pairing = self.sync.as_ref().is_some_and(|s| s.shared.lock().map(|g| g.pair.is_some()).unwrap_or(false));
         self.block_input = self.menu.is_some() || pairing;
+        self.track_drag();
         // Read the controller every frame (panels use B / A from it too).
         let pad_action = self.pad_nav();
         // Android's Back button closes panels and menus like B on a controller.
@@ -645,6 +690,7 @@ impl Launcher {
         self.draw_header(sw);
         self.draw_overlays(sw, sh);
         self.draw_pair_prompt(sw, sh);
+        self.end_press();
     }
 
     /// Find Fusion games in Steam and add them (linked in place, or copied to storage).

@@ -78,7 +78,7 @@ impl Launcher {
             }
             let fg = if k == selected { Color::new(0.1, 0.06, 0.02, 1.0) } else { mix(TEXT, MUTED, 0.25) };
             self.bold_text(o, r.x + (r.w - self.bold_width(o, 15)) / 2.0, r.y + 20.0, 15, fg);
-            if hover && is_mouse_button_pressed(MouseButton::Left) {
+            if self.tap(r) {
                 clicked = Some(k);
             }
             x += w;

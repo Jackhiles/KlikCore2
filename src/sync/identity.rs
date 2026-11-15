@@ -116,6 +116,15 @@ pub fn save_peers(peers: &[Peer]) {
     let _ = std::fs::write(peers_file(), text);
 }
 
+/// Change the paired-device list on disk (re-read first, so another Rekindle process
+/// sharing this data folder can't have its changes overwritten) and return the result.
+pub fn update_peers(f: impl FnOnce(&mut Vec<Peer>)) -> Vec<Peer> {
+    let mut peers = load_peers();
+    f(&mut peers);
+    save_peers(&peers);
+    peers
+}
+
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }

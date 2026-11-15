@@ -34,7 +34,8 @@ pub(super) const ACT_PLAY: u8 = 0;
 pub(super) const ACT_SETTINGS: u8 = 4;
 
 const GAP: f32 = 18.0;
-const MIN_CARD_W: f32 = 150.0;
+/// Narrower on phones, so more covers fit across.
+const MIN_CARD_W: f32 = if cfg!(target_os = "android") { 128.0 } else { 150.0 };
 const MAX_CARD_W: f32 = 220.0;
 const TITLE_SPACE: f32 = 46.0;
 
@@ -92,7 +93,7 @@ impl Launcher {
         let hover = !self.block_input && r.contains(Vec2::from(mouse_position()));
         rrect(r.x, r.y, r.w, r.h, 8.0, if hover { mix(BUTTON, TEXT, 0.08) } else { BUTTON });
         draw_icon(r.x + r.w / 2.0, r.y + r.h / 2.0, TEXT);
-        hover && is_mouse_button_pressed(MouseButton::Left)
+        self.tap(r)
     }
 
     pub(super) fn draw_header(&mut self, sw: f32) {
@@ -106,7 +107,11 @@ impl Launcher {
         let menu_btn = Rect::new(sw - 24.0 - 40.0, 14.0, 40.0, 36.0);
         let add_btn = Rect::new(menu_btn.x - 10.0 - 92.0, 14.0, 92.0, 36.0);
         if self.icon_button(menu_btn, draw_dots) {
-            let mut items = vec![("Steam games", MenuAction::SteamGames), ("Play log", MenuAction::PlayLog), ("Open data folder", MenuAction::DataFolder)];
+            let mut items = if cfg!(target_os = "android") {
+                vec![("Play log", MenuAction::PlayLog)]
+            } else {
+                vec![("Steam games", MenuAction::SteamGames), ("Play log", MenuAction::PlayLog), ("Open data folder", MenuAction::DataFolder)]
+            };
             if self.sync.is_some() {
                 items.insert(0, ("Devices and sync", MenuAction::Devices));
             }
@@ -147,6 +152,11 @@ impl Launcher {
         let w = (right - 12.0 - x0).min(380.0);
         if w > 150.0 && self.library_view() {
             let r = Rect::new(x0, 14.0, w, 36.0);
+            // Phones: tapping the search box brings up the on-screen keyboard.
+            #[cfg(target_os = "android")]
+            if self.tap(r) {
+                macroquad::miniquad::window::show_keyboard(true);
+            }
             rrect(r.x, r.y, r.w, r.h, 18.0, CARD);
             draw_circle_lines(r.x + 20.0, r.y + 17.0, 6.0, 1.6, MUTED);
             draw_line(r.x + 24.5, r.y + 21.5, r.x + 29.0, r.y + 26.0, 1.8, MUTED);
@@ -196,6 +206,8 @@ impl Launcher {
         }
         if is_key_pressed(KeyCode::Escape) {
             self.search.clear();
+            #[cfg(target_os = "android")]
+            macroquad::miniquad::window::show_keyboard(false);
         }
         let cols = self.grid_cols.max(1) as isize;
         for (k, d) in [(KeyCode::Left, -1), (KeyCode::Right, 1), (KeyCode::Up, -cols), (KeyCode::Down, cols)] {
@@ -298,7 +310,7 @@ impl Launcher {
             if let Some((secs, _)) = self.totals.get(&path.to_string_lossy().to_lowercase()) {
                 self.text(&format!("{} played", playlog::duration(*secs)), x, y + card_h + 40.0, 13, MUTED);
             }
-            if hover && is_mouse_button_pressed(MouseButton::Left) {
+            if self.tap(card) {
                 self.selected = Some(i);
                 let now = get_time();
                 if self.last_click.is_some_and(|(j, t)| j == i && now - t < 0.4) {
