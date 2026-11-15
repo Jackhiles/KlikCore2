@@ -66,6 +66,30 @@ impl Scaling {
     }
 }
 
+/// On-screen touch controls (see `render::touch`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TouchMode {
+    /// Shown when the game (and the current frame) uses keys.
+    Auto,
+    /// Always shown.
+    On,
+    /// Hidden.
+    Off,
+}
+
+impl TouchMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            TouchMode::Auto => "auto",
+            TouchMode::On => "on",
+            TouchMode::Off => "off",
+        }
+    }
+    fn parse(s: &str) -> Option<Self> {
+        [TouchMode::Auto, TouchMode::On, TouchMode::Off].into_iter().find(|m| m.name() == s)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Settings {
     /// None = follow the game's own "fullscreen at start" setting.
@@ -84,6 +108,8 @@ pub struct Settings {
     pub pad_speed: u8,
     /// Button remaps, e.g. ("south", "13") or ("rt", "click"); see `render::gamepad`.
     pub pad_map: Vec<(String, String)>,
+    /// On-screen touch controls (Android, or desktop with REKINDLE_TOUCH_CONTROLS=1).
+    pub touch_controls: TouchMode,
     path: Option<PathBuf>,
 }
 
@@ -99,6 +125,7 @@ impl Default for Settings {
             pad_wasd: false,
             pad_speed: 2,
             pad_map: Vec::new(),
+            touch_controls: TouchMode::Auto,
             path: None,
         }
     }
@@ -152,6 +179,7 @@ impl Settings {
                 "controller" => self.pad = on,
                 "controller_move" => self.pad_wasd = v == "wasd",
                 "controller_cursor_speed" => self.pad_speed = v.parse::<u8>().unwrap_or(2).clamp(1, 3),
+                "touch_controls" => self.touch_controls = TouchMode::parse(&v).unwrap_or(self.touch_controls),
                 key if key.starts_with("pad_") => {
                     let button = key[4..].to_string();
                     self.pad_map.retain(|(b, _)| *b != button);
@@ -175,6 +203,8 @@ impl Settings {
         text += &format!("controller={}\n", self.pad as u8);
         text += &format!("controller_move={}\n", if self.pad_wasd { "wasd" } else { "arrows" });
         text += &format!("controller_cursor_speed={}\n", self.pad_speed);
+        text += &format!("touch_controls={}
+", self.touch_controls.name());
         for (b, v) in &self.pad_map {
             text += &format!("pad_{b}={v}\n");
         }
@@ -204,9 +234,12 @@ mod tests {
         s.scaling = Scaling::Integer;
         s.window_scale = 2;
         s.hud = true;
+        s.touch_controls = TouchMode::Off;
         let mut t = Settings::default();
         t.apply(&s.to_text());
         assert_eq!((t.fullscreen, t.filter, t.scaling, t.window_scale, t.hud), (Some(true), Filter::Enhanced, Scaling::Integer, 2, true));
+        assert_eq!(t.touch_controls, TouchMode::Off);
+        assert_eq!(Settings::default().touch_controls, TouchMode::Auto);
         let mut old = Settings::default();
         old.apply("[rekindle]\nfullscreen=0\nsmooth=0\n");
         assert_eq!((old.fullscreen, old.filter), (Some(false), Filter::Sharp));

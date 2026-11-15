@@ -154,7 +154,12 @@ There is no file picker on Android: on start the launcher adds the Fusion games 
 `adb push MyGame /sdcard/Android/data/com.takobyte.rekindle/files/games/`) and in the app's private
 `files/Rekindle/games/` folder. Saves, settings and the library live in the app's private `files/Rekindle/` folder.
 Games run inside the app; touch acts as the mouse, Back is Escape, and Back twice within a second returns to the
-launcher. Sound uses Android's audio (Oboe). Not available on Android: controllers, file dialogs, desktop
+launcher. Games played with the keyboard get on-screen controls: the keys a game tests are found in its events and
+movements, arrow keys (or W A S D) become a D-pad at the bottom left and up to six other keys, most used first, become
+buttons at the bottom right (several can be held at once; sliding between buttons works). They show only on frames
+that use those keys, start hidden in games played mostly with the mouse, and the small button at the top right hides
+or shows them (remembered per game, `touch_controls=auto|on|off` in the game's settings file). On a PC,
+`REKINDLE_TOUCH_CONTROLS=1` shows them too (the mouse acts as a finger). Sound uses Android's audio (Oboe). Not available on Android: controllers, file dialogs, desktop
 shortcuts, Steam, the self-updater, and games that start Windows programs.
 
 ### Controllers
