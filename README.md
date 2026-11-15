@@ -122,6 +122,27 @@ run it; on the Deck, do that in desktop mode and add it to Steam as a non-Steam 
 Input's keyboard-and-mouse templates map the Deck's controls for the games. Add games with "Add folder..." (uses the
 desktop's own picker, kdialog or zenity) or `rekindle-linux-x86_64 --add ~/Games`.
 
+### Android
+An APK for 64-bit ARM phones and tablets (`rekindle-android-arm64.apk`) is attached to each release. To build it
+yourself you need the Android SDK (build-tools and a platform), the NDK, a JDK (17 or newer) and
+`rustup target add aarch64-linux-android`; then run
+
+    python scripts/android/build.py            # target/android/rekindle-debug.apk
+    python scripts/android/build.py --release  # target/android/rekindle-release.apk
+
+The script finds the tools through `ANDROID_HOME`, `ANDROID_NDK_HOME` and `JAVA_HOME` (or their usual install
+folders), builds the crate's library for Android, and packs it with miniquad's Java activity into a signed APK (a
+debug key is made in `target/android/` on first use; `--abi arm64-v8a,armeabi-v7a,x86_64` builds more ABIs). Install
+it with `adb install target/android/rekindle-debug.apk`.
+
+There is no file picker on Android: on start the launcher adds the Fusion games it finds in
+`Android/data/com.takobyte.rekindle/files/games/` (reachable from a PC over USB, or
+`adb push MyGame /sdcard/Android/data/com.takobyte.rekindle/files/games/`) and in the app's private
+`files/Rekindle/games/` folder. Saves, settings and the library live in the app's private `files/Rekindle/` folder.
+Games run inside the app; touch acts as the mouse, Back is Escape, and Back twice within a second returns to the
+launcher. Sound uses Android's audio (Oboe). Not available on Android: controllers, file dialogs, desktop
+shortcuts, Steam, the self-updater, and games that start Windows programs.
+
 ### Controllers
 Games that only support keyboard and mouse can be played with a gamepad (Xbox / PlayStation controllers, Steam Deck).
 On by default; per game in the launcher's **Settings** (on/off, left stick as arrow keys or W A S D, cursor speed).

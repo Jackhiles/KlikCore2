@@ -66,3 +66,45 @@ jobs:
           generate_release_notes: true
           # Tags with a dash (v0.1.2-test1) are test builds: pre-releases, which the updater ignores.
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+  android:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE != '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27c
+          add-to-path: false
+      # Optional: a base64 keystore in the ANDROID_KEYSTORE secret (with ANDROID_KEYSTORE_PASS
+      # and ANDROID_KEY_ALIAS) signs every release with the same key, so the app updates in
+      # place. Without it the APK gets a new debug key each time.
+      - name: Signing key
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "REKINDLE_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+      - name: Build APK
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          REKINDLE_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          REKINDLE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          python3 scripts/android/build.py --release
+          cp target/android/rekindle-release.apk rekindle-android-arm64.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: rekindle-android-arm64.apk
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -1827,6 +1827,7 @@ dependencies = [
  "jpeg-decoder",
  "macroquad",
  "memmap2",
+ "ndk-context",
  "png",
  "rfd",
  "serde_json",

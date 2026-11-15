@@ -16,3 +16,6 @@ pub mod log;
 pub mod render;
 /// Object runtime and event interpreter (no rendering dependencies).
 pub mod runtime;
+/// Android entry point (the app is this library, loaded by miniquad's Java activity).
+#[cfg(target_os = "android")]
+mod android;

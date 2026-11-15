@@ -15,7 +15,7 @@ use view::Menu;
 mod dialogs {
     use std::path::PathBuf;
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     pub fn pick_game() -> Option<PathBuf> {
         rfd::FileDialog::new()
             .set_title("Choose a Fusion game")
@@ -23,9 +23,20 @@ mod dialogs {
             .pick_file()
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     pub fn pick_folder() -> Option<PathBuf> {
         rfd::FileDialog::new().set_title("Choose a folder with games").pick_folder()
+    }
+
+    /// Android has no file picker: games are found in `library::game_folders()` instead.
+    #[cfg(target_os = "android")]
+    pub fn pick_game() -> Option<PathBuf> {
+        None
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn pick_folder() -> Option<PathBuf> {
+        None
     }
 
     /// Ask the desktop's own picker: kdialog (KDE, e.g. Steam Deck desktop mode) or zenity.
@@ -138,7 +149,7 @@ impl LauncherConfig {
     }
 
     fn load() -> Self {
-        let mut c = Self { steam_copy: false, storage: library::data_dir().join("games"), steam_self_never: false };
+        let mut c = Self { steam_copy: false, storage: library::games_storage_dir(), steam_self_never: false };
         if let Ok(text) = std::fs::read_to_string(Self::file()) {
             for line in text.lines() {
                 match line.split_once('=') {
@@ -238,6 +249,9 @@ struct Launcher {
     grid_cols: usize,
     /// Scroll the selected game into view.
     reveal: bool,
+    /// Android: the game to run in this window (there are no separate processes).
+    #[cfg(target_os = "android")]
+    play_request: Option<PathBuf>,
 }
 
 impl Launcher {
@@ -291,6 +305,8 @@ impl Launcher {
             block_input: false,
             grid_cols: 1,
             reveal: false,
+            #[cfg(target_os = "android")]
+            play_request: None,
         }
     }
 
@@ -349,7 +365,8 @@ impl Launcher {
     /// Look for a newer release in the background (not for developer builds).
     fn start_update_check(&self) {
         update::cleanup();
-        if update::is_dev_build() || std::env::var_os("REKINDLE_NO_UPDATE_CHECK").is_some() {
+        // Android updates come as a new APK, not a replaced program file.
+        if cfg!(target_os = "android") || update::is_dev_build() || std::env::var_os("REKINDLE_NO_UPDATE_CHECK").is_some() {
             return;
         }
         let tx = self.tx.clone();
@@ -497,10 +514,17 @@ impl Launcher {
         self.running.iter().any(|(p, _)| p == path)
     }
 
+    #[cfg_attr(target_os = "android", allow(unreachable_code))]
     fn play(&mut self, i: usize) {
         let e = self.entries[i].clone();
         if !e.path.is_file() {
             self.say(format!("Can't find {} any more.", e.path.display()));
+            return;
+        }
+        // Android: `run` plays it in this window.
+        #[cfg(target_os = "android")]
+        {
+            self.play_request = Some(e.path.clone());
             return;
         }
         if self.is_running(&e.path) {
@@ -573,6 +597,11 @@ impl Launcher {
         self.block_input = self.menu.is_some();
         // Read the controller every frame (panels use B / A from it too).
         let pad_action = self.pad_nav();
+        // Android's Back button closes panels and menus like B on a controller.
+        #[cfg(target_os = "android")]
+        if is_key_pressed(KeyCode::Back) {
+            self.pad_back = true;
+        }
         let top = HEADER_H;
         if let Some(i) = self.steam_confirm {
             self.draw_steam_confirm(top, i);
@@ -646,6 +675,19 @@ impl Launcher {
         });
     }
 
+    /// Add any new games found in `library::game_folders()` (Android has no file picker).
+    #[cfg(target_os = "android")]
+    fn scan_game_folders(&mut self) {
+        let mut files = Vec::new();
+        for dir in library::game_folders() {
+            let _ = std::fs::create_dir_all(&dir);
+            files.extend(library::find_games(&dir).into_iter().filter(|f| !self.has(f)));
+        }
+        if !files.is_empty() {
+            self.add_paths(files, "games".into());
+        }
+    }
+
     /// Add a library entry to Steam in the background (restarting Steam if it's running).
     fn add_to_steam(&mut self, i: usize) {
         let Some(e) = self.entries.get(i).cloned() else { return };
@@ -687,6 +729,8 @@ pub async fn run() {
     let mut l = Launcher::new();
     l.start_update_check();
     l.check_steam_shortcut();
+    #[cfg(target_os = "android")]
+    l.scan_game_folders();
     // Testing: REKINDLE_LAUNCHER_SHOT=<file.png> saves the window once artwork has loaded
     // (or after 20 s), then exits. REKINDLE_LAUNCHER_SELECT=<n> selects the n-th game,
     // REKINDLE_LAUNCHER_PAGE=settings|steam|log opens that page.
@@ -702,6 +746,16 @@ pub async fn run() {
     }
     let started = get_time();
     loop {
+        // Android: play the chosen game in this window, then come back to the library.
+        #[cfg(target_os = "android")]
+        if let Some(game) = l.play_request.take() {
+            if let Err(e) = crate::android::play(&game).await {
+                l.say(e);
+            }
+            while get_char_pressed().is_some() {}
+            l.next_log_check = 0.0;
+            l.scan_game_folders();
+        }
         l.update();
         l.refresh_log();
         l.draw();
