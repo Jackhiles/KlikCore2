@@ -229,6 +229,37 @@ ACTIVITY_SCALE = """    // Rekindle: lower-resolution (readable) launcher UI on,
 """
 
 
+# Immersive full screen: no status or navigation bar over the app.
+IMMERSIVE = """    public void hideSystemBars() {
+        View decorView = getWindow().getDecorView();
+        if (Build.VERSION.SDK_INT >= 28) {
+            getWindow().getAttributes().layoutInDisplayCutoutMode = LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(false);
+            android.view.WindowInsetsController c = decorView.getWindowInsetsController();
+            if (c != null) {
+                c.hide(android.view.WindowInsets.Type.systemBars());
+                c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            hideSystemBars();
+        }
+    }
+
+"""
+
+
 def write_java(src_dir, out_dir):
     """miniquad's activity with our package and library name; `//%` plugin hooks removed."""
     if out_dir.exists():
@@ -254,6 +285,17 @@ def write_java(src_dir, out_dir):
         die("miniquad's MainActivity.java changed: touch handling / anchors not found")
     activity = activity.replace(anchors[0], SURFACE_SCALE + anchors[0])
     activity = activity.replace(anchors[1], ACTIVITY_SCALE + anchors[1])
+    # Hide the status and navigation bars (miniquad only lets the app draw under them on
+    # Android 11+), again whenever the app comes back; a swipe shows them for a moment.
+    fit = "getWindow().setDecorFitsSystemWindows(false);"
+    if fit not in activity or "    protected void onResume() {\n        super.onResume();" not in activity:
+        die("miniquad's MainActivity.java changed: fullscreen / onResume not found")
+    activity = activity.replace(fit, fit + "\n                            hideSystemBars();")
+    activity = activity.replace(
+        "    protected void onResume() {\n        super.onResume();",
+        "    protected void onResume() {\n        super.onResume();\n        hideSystemBars();",
+    )
+    activity = activity.replace(anchors[1], IMMERSIVE + anchors[1])
     files = [
         (out_dir / Path(*PACKAGE.split(".")) / "MainActivity.java", activity),
         (out_dir / "quad_native" / "QuadNative.java", (src_dir / "QuadNative.java").read_text(encoding="utf-8")),

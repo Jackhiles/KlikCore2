@@ -258,6 +258,8 @@ impl Launcher {
             }
             p.y = y0 + unpaired.len() as f32 * DEV_ROW;
         }
+        p.y += 12.0;
+        self.add_by_address(&svc, &mut p);
         p.y += 16.0;
         let note = self.fit("Saves sync when the launcher opens and when you close a game; the newer save wins and the older one is backed up.", 14, p.w);
         self.text(&note, p.x, p.y + 14.0, 14, MUTED);
@@ -268,6 +270,63 @@ impl Launcher {
             self.unpair_confirm = None;
             self.scroll = 0.0;
         }
+    }
+
+    /// "Add by address": for devices on another subnet, which broadcasts don't reach.
+    fn add_by_address(&mut self, svc: &crate::sync::Service, p: &mut super::pages::Page) {
+        let h = 74.0;
+        rrect(p.x, p.y, p.w, h, 12.0, CARD);
+        let mine = crate::sync::service::local_address().map(|a| a.to_string()).unwrap_or_else(|| "unknown".into());
+        match self.addr_input.clone() {
+            None => {
+                self.text("Can't see a device?", p.x + CARD_PAD, p.y + 31.0, 17, TEXT);
+                let hint = self.fit(&format!("Add it by its address. This device's address is {mine}."), 14, p.w - 2.0 * CARD_PAD - 190.0);
+                self.text(&hint, p.x + CARD_PAD, p.y + 53.0, 14, MUTED);
+                if self.button(Rect::new(p.x + p.w - CARD_PAD - 170.0, p.y + (h - 38.0) / 2.0, 170.0, 38.0), "Add by address", false, true) {
+                    self.addr_input = Some(String::new());
+                    #[cfg(target_os = "android")]
+                    macroquad::miniquad::window::show_keyboard(true);
+                }
+            }
+            Some(mut text) => {
+                while let Some(c) = get_char_pressed() {
+                    if (c.is_ascii_hexdigit() || c == '.' || c == ':') && text.len() < 45 {
+                        text.push(c);
+                    }
+                }
+                if is_key_pressed(KeyCode::Backspace) {
+                    text.pop();
+                }
+                let field = Rect::new(p.x + CARD_PAD, p.y + (h - 40.0) / 2.0, (p.w - 2.0 * CARD_PAD - 230.0).max(160.0), 40.0);
+                rrect(field.x, field.y, field.w, field.h, 8.0, BG);
+                let shown = if text.is_empty() { "e.g. 192.168.1.20".to_string() } else { text.clone() };
+                self.text(&shown, field.x + 12.0, field.y + 26.0, 16, if text.is_empty() { MUTED } else { TEXT });
+                if (get_time() * 2.0) as i64 % 2 == 0 && !text.is_empty() {
+                    draw_rectangle(field.x + 13.0 + self.text_width(&text, 16), field.y + 10.0, 1.5, 20.0, TEXT);
+                }
+                let ip = text.trim().parse::<std::net::IpAddr>().ok();
+                let add = Rect::new(field.x + field.w + 10.0, field.y, 100.0, 40.0);
+                let cancel = Rect::new(add.x + add.w + 8.0, field.y, 100.0, 40.0);
+                let mut done = false;
+                if self.button(add, "Add", true, ip.is_some()) || (ip.is_some() && (is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter))) {
+                    if let Some(ip) = ip {
+                        svc.add_address(ip);
+                        self.say(format!("Looking for Rekindle at {ip}..."));
+                    }
+                    done = true;
+                } else if self.button(cancel, "Cancel", false, true) || is_key_pressed(KeyCode::Escape) {
+                    done = true;
+                } else {
+                    self.addr_input = Some(text);
+                }
+                if done {
+                    self.addr_input = None;
+                    #[cfg(target_os = "android")]
+                    macroquad::miniquad::window::show_keyboard(false);
+                }
+            }
+        }
+        p.y += h;
     }
 
     /// A paired device's games, to copy here.

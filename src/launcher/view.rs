@@ -113,7 +113,11 @@ impl Launcher {
             self.open_menu(menu_btn.x + menu_btn.w, menu_btn.y + menu_btn.h + 6.0, items, true);
         }
         if self.button(add_btn, "     Add", true, idle) {
-            let mut items = vec![("Add a game...", MenuAction::AddGame), ("Add a folder of games...", MenuAction::AddFolder)];
+            let mut items = if cfg!(target_os = "android") {
+                vec![("Get games from a paired device", MenuAction::Devices)]
+            } else {
+                vec![("Add a game...", MenuAction::AddGame), ("Add a folder of games...", MenuAction::AddFolder)]
+            };
             if self.has_steam {
                 items.push(("Find games in Steam", MenuAction::SteamGames));
             }
@@ -324,10 +328,18 @@ impl Launcher {
         }
         let title = "Your library is empty";
         self.bold_text(title, (sw - self.bold_width(title, 26)) / 2.0, cy, 26, TEXT);
-        let hint = "Add Clickteam Fusion games (.exe, .ccn or .dat), a folder of them, or the ones you own on Steam.";
+        let hint = if cfg!(target_os = "android") {
+            "Copy games from Rekindle on your PC: pair it under Devices, then open its Games."
+        } else {
+            "Add Clickteam Fusion games (.exe, .ccn or .dat), a folder of them, or the ones you own on Steam."
+        };
         let hint = self.fit(hint, 16, sw - 48.0);
         self.text(&hint, (sw - self.text_width(&hint, 16)) / 2.0, cy + 32.0, 16, MUTED);
-        let mut buttons: Vec<(&str, MenuAction, bool)> = vec![("Add a game", MenuAction::AddGame, true), ("Add a folder", MenuAction::AddFolder, false)];
+        let mut buttons: Vec<(&str, MenuAction, bool)> = if cfg!(target_os = "android") {
+            vec![("Get games from a PC", MenuAction::Devices, true)]
+        } else {
+            vec![("Add a game", MenuAction::AddGame, true), ("Add a folder", MenuAction::AddFolder, false)]
+        };
         if self.has_steam {
             buttons.push(("Find Steam games", MenuAction::SteamGames, false));
         }

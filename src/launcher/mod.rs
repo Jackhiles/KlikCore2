@@ -257,6 +257,8 @@ struct Launcher {
     remote_games_for: Option<String>,
     /// "Unpair" waiting for a second click (device id).
     unpair_confirm: Option<String>,
+    /// Typing a device address on the Devices page.
+    addr_input: Option<String>,
     /// Save folders of games running at the last check (to sync when they close).
     sync_running: Vec<String>,
     sync_started: bool,
@@ -320,6 +322,7 @@ impl Launcher {
             devices_page: false,
             remote_games_for: None,
             unpair_confirm: None,
+            addr_input: None,
             sync_running: Vec::new(),
             sync_started: false,
             #[cfg(target_os = "android")]

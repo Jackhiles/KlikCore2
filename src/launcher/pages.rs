@@ -39,7 +39,7 @@ impl Launcher {
             self.text(&s, x, ny + 14.0, 15, MUTED);
             ny += 28.0;
         }
-        let close = back || (!self.block_input && is_key_pressed(KeyCode::Escape)) || self.pad_back;
+        let close = back || (!self.block_input && self.addr_input.is_none() && is_key_pressed(KeyCode::Escape)) || self.pad_back;
         (Page { x, w, y: ny + 12.0 }, close)
     }
 

@@ -8,7 +8,7 @@ use super::wire::{self, Channel, PairKeys};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
-use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -81,6 +81,8 @@ pub struct Shared {
     pub transfers: Vec<Transfer>,
     /// Games copied here; the launcher adds them to its library (taken by it).
     pub new_games: Vec<PathBuf>,
+    /// Addresses added by hand (devices on another subnet, which broadcasts don't reach).
+    pub manual: Vec<IpAddr>,
 }
 
 /// Handle to the running service (cheap to clone).
@@ -89,6 +91,19 @@ pub struct Service {
     pub me: Identity,
     pub port: u16,
     pub shared: Arc<Mutex<Shared>>,
+    /// The discovery socket (also used to ask a typed address directly).
+    udp: Option<Arc<UdpSocket>>,
+}
+
+fn manual_file() -> PathBuf {
+    identity::dir().join("addresses.txt")
+}
+
+/// This device's address on the local network (the one used to reach the internet).
+pub fn local_address() -> Option<IpAddr> {
+    let s = UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+    s.connect(("192.0.2.1", 9)).ok()?; // nothing is sent
+    s.local_addr().ok().map(|a| a.ip())
 }
 
 fn os_name() -> &'static str {
@@ -105,8 +120,10 @@ impl Service {
         let me = Identity::load_or_create();
         let listener = TcpListener::bind(("0.0.0.0", SYNC_PORT)).or_else(|_| TcpListener::bind(("0.0.0.0", 0))).ok();
         let port = listener.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
-        let shared = Arc::new(Mutex::new(Shared { peers: identity::load_peers(), ..Default::default() }));
-        let svc = Self { me, port, shared };
+        let manual = std::fs::read_to_string(manual_file()).unwrap_or_default().lines().filter_map(|l| l.trim().parse().ok()).collect();
+        let shared = Arc::new(Mutex::new(Shared { peers: identity::load_peers(), manual, ..Default::default() }));
+        let udp = UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)).or_else(|_| UdpSocket::bind(("0.0.0.0", 0))).ok().map(Arc::new);
+        let svc = Self { me, port, shared, udp };
         if let Some(l) = listener {
             let s = svc.clone();
             std::thread::spawn(move || s.serve(l));
@@ -122,8 +139,7 @@ impl Service {
     /// directly (answers are ordinary packets, which also reach phones that filter
     /// broadcasts).
     fn discover(&self) {
-        let sock = UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)).or_else(|_| UdpSocket::bind(("0.0.0.0", 0)));
-        let Ok(sock) = sock else { return };
+        let Some(sock) = self.udp.clone() else { return };
         let _ = sock.set_broadcast(true);
         let _ = sock.set_read_timeout(Some(Duration::from_millis(500)));
         let msg = |t: &str| json!({"t": t, "app": "rekindle", "v": 1, "id": self.me.id, "name": self.me.name, "port": self.port, "os": os_name()}).to_string();
@@ -132,6 +148,14 @@ impl Service {
         loop {
             if last_query.elapsed() > Duration::from_secs(3) {
                 let _ = sock.send_to(msg("q").as_bytes(), ("255.255.255.255", DISCOVERY_PORT));
+                // Devices broadcasts don't reach (another subnet): ask them directly.
+                let direct: Vec<IpAddr> = {
+                    let s = lock(&self.shared);
+                    s.peers.iter().filter_map(|p| p.last_addr.map(|a| a.ip())).chain(s.manual.iter().copied()).collect()
+                };
+                for ip in direct {
+                    let _ = sock.send_to(msg("q").as_bytes(), (ip, DISCOVERY_PORT));
+                }
                 last_query = Instant::now();
                 let mut s = lock(&self.shared);
                 s.nearby.retain(|_, n| n.seen.elapsed() < Duration::from_secs(15));
@@ -160,6 +184,23 @@ impl Service {
     fn address_of(&self, peer: &str) -> Option<SocketAddr> {
         let s = lock(&self.shared);
         s.nearby.get(peer).map(|n| n.addr).or_else(|| s.peers.iter().find(|p| p.id == peer).and_then(|p| p.last_addr))
+    }
+
+    /// Look for Rekindle at an address typed by the user (remembered for next time).
+    pub fn add_address(&self, ip: IpAddr) {
+        {
+            let mut s = lock(&self.shared);
+            if !s.manual.contains(&ip) {
+                s.manual.push(ip);
+                let text: String = s.manual.iter().map(|a| format!("{a}\n")).collect();
+                let _ = std::fs::create_dir_all(identity::dir());
+                let _ = std::fs::write(manual_file(), text);
+            }
+        }
+        if let Some(sock) = &self.udp {
+            let q = json!({"t": "q", "app": "rekindle", "v": 1, "id": self.me.id, "name": self.me.name, "port": self.port, "os": os_name()}).to_string();
+            let _ = sock.send_to(q.as_bytes(), (ip, DISCOVERY_PORT));
+        }
     }
 
     pub fn is_online(&self, peer: &str) -> bool {

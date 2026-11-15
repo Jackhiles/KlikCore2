@@ -114,7 +114,7 @@ deletions are followed, and anything replaced or deleted is backed up to `<game>
 that is running on either device is skipped. **Games** on a paired device lists its library and copies a game here
 (into `<data dir>/games/`), which is how games get onto a phone.
 
-Devices find each other with UDP broadcasts on port 48631 and talk over TCP port 48632 (allow Rekindle through the
+Broadcasts don't cross between subnets (for example a PC on `192.168.1.x` and a phone on `192.168.2.x`): use **Add by address** on the Devices page with the other device's address (each device shows its own there); paired devices then find each other directly. Devices find each other with UDP broadcasts on port 48631 and talk over TCP port 48632 (allow Rekindle through the
 firewall when asked). Pairing is an X25519 key exchange confirmed by comparing the code; after that every connection is
 authenticated and encrypted (ChaCha20-Poly1305) with the paired key. Only paired devices can read saves or game files.
 Without the launcher: `rekindle --sync list`, `--sync pair ID`, `--sync sync`, `--sync games ID`, `--sync fetch ID` (with `REKINDLE_FETCH=<number>`), `--sync serve`.
