@@ -27,6 +27,12 @@ jpeg-decoder = { version = "0.3", default-features = false }
 gilrs = "0.11"
 symphonia = { version = "0.5", default-features = false, features = ["mp3", "wav", "pcm", "adpcm", "ogg", "vorbis"] }
 cpal = "0.15"
+# Device pairing and save sync over the local network: key exchange, encryption, hashing.
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+hkdf = "0.12"
+rand = "0.9"
 
 [build-dependencies]
 # Windows: embeds the .exe icon.

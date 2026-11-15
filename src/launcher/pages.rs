@@ -4,9 +4,9 @@
 use super::view::{mix, rrect};
 use super::*;
 
-const ROW_H: f32 = 74.0;
-const CARD_PAD: f32 = 22.0;
-const SECTION_GAP: f32 = 30.0;
+pub(super) const ROW_H: f32 = 74.0;
+pub(super) const CARD_PAD: f32 = 22.0;
+pub(super) const SECTION_GAP: f32 = 30.0;
 const MAX_W: f32 = 860.0;
 
 fn draw_back_arrow(cx: f32, cy: f32, c: Color) {
@@ -16,16 +16,16 @@ fn draw_back_arrow(cx: f32, cy: f32, c: Color) {
 }
 
 /// Layout of a page: the content column and where the next element goes.
-struct Page {
-    x: f32,
-    w: f32,
-    y: f32,
+pub(super) struct Page {
+    pub x: f32,
+    pub w: f32,
+    pub y: f32,
 }
 
 impl Launcher {
     /// Page title with a back arrow; scrolls with the content. Returns the layout and
     /// whether the page should close (arrow, Escape or the controller's B).
-    fn page_start(&mut self, top: f32, title: &str, subtitle: &str) -> (Page, bool) {
+    pub(super) fn page_start(&mut self, top: f32, title: &str, subtitle: &str) -> (Page, bool) {
         let sw = screen_width();
         let w = (sw - 48.0).min(MAX_W);
         let x = (sw - w) / 2.0;
@@ -44,7 +44,7 @@ impl Launcher {
     }
 
     /// Scroll a page whose content ends at `end` (screen y, already scrolled).
-    fn page_scroll(&mut self, top: f32, end: f32) {
+    pub(super) fn page_scroll(&mut self, top: f32, end: f32) {
         let content = end + self.scroll - top + 40.0;
         let max = (content - (screen_height() - top)).max(0.0);
         if !self.block_input {
@@ -53,7 +53,7 @@ impl Launcher {
         self.scroll = self.scroll.clamp(0.0, max);
     }
 
-    fn section_title(&self, p: &mut Page, title: &str) {
+    pub(super) fn section_title(&self, p: &mut Page, title: &str) {
         self.bold_text(title, p.x + 4.0, p.y + 16.0, 15, MUTED);
         p.y += 28.0;
     }
@@ -112,7 +112,7 @@ impl Launcher {
     }
 
     /// A rounded card from `y0` to the page's current position.
-    fn card_behind(&self, x: f32, y0: f32, w: f32, y1: f32) {
+    pub(super) fn card_behind(&self, x: f32, y0: f32, w: f32, y1: f32) {
         rrect(x, y0, w, y1 - y0, 12.0, CARD);
     }
 

@@ -134,6 +134,12 @@ struct Cli {
     #[arg(long, value_name = "status|import|export")]
     saves: Option<String>,
 
+    /// Devices on the local network (no game needed): `list` shows nearby and paired
+    /// devices, `pair ID` pairs with one (confirming the code here), `sync` syncs saves with
+    /// every paired device that's online, `serve` stays online and accepts pairing.
+    #[arg(long, num_args = 1..=2, value_names = ["COMMAND", "ID"])]
+    sync: Option<Vec<String>>,
+
     /// Visit every event of every frame once (conditions, actions, expressions) and list what
     /// is unsupported, with the frames that use it.
     #[arg(long)]
@@ -149,6 +155,9 @@ fn main() -> Result<()> {
     rekindle::log::install_panic_hook();
     if let Some(target) = &cli.scenario {
         return run_scenarios(target);
+    }
+    if let Some(args) = &cli.sync {
+        return sync_cli(args);
     }
     if cli.find_steam {
         use rekindle::launcher::steam;
@@ -417,6 +426,96 @@ fn run_headless(
 }
 
 /// Compatibility sweep: every frame, N ticks each, then the unsupported features hit overall.
+/// `--sync`: pairing and save sync from the command line.
+fn sync_cli(args: &[String]) -> Result<()> {
+    use rekindle::sync::Service;
+    use std::time::Duration;
+    let svc = Service::start();
+    println!("this device: {} ({}), port {}", svc.me.name, svc.me.id, svc.port);
+    let shared = svc.shared.clone();
+    let wait_for = |secs: u64, done: &dyn Fn(&rekindle::sync::Shared) -> bool| {
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(secs) {
+            if done(&shared.lock().unwrap()) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        false
+    };
+    let print_messages = || {
+        for m in std::mem::take(&mut shared.lock().unwrap().messages) {
+            println!("{m}");
+        }
+    };
+    // The prompt in a terminal: show the code and accept (the user ran this command).
+    let confirm_pairing = || {
+        let mut s = shared.lock().unwrap();
+        if let Some(p) = s.pair.as_mut() {
+            if p.decision.is_none() && p.result.is_none() {
+                if let Some(code) = &p.code {
+                    println!("pairing with {}: code {code} (accepting)", p.peer_name);
+                    p.decision = Some(true);
+                }
+            }
+            if let Some(r) = p.result.take() {
+                match r {
+                    Ok(n) => println!("paired with {n}"),
+                    Err(e) => println!("pairing failed: {e}"),
+                }
+                s.pair = None;
+                return true;
+            }
+        }
+        false
+    };
+    match args[0].as_str() {
+        "list" => {
+            std::thread::sleep(Duration::from_secs(5));
+            let s = shared.lock().unwrap();
+            println!("nearby:");
+            for n in s.nearby.values() {
+                let paired = if s.peers.iter().any(|p| p.id == n.id) { " (paired)" } else { "" };
+                println!("  {}  {}  {}  {}{paired}", n.id, n.name, n.os, n.addr);
+            }
+            println!("paired:");
+            for p in &s.peers {
+                println!("  {}  {}  last sync {}", p.id, p.name, p.last_sync);
+            }
+        }
+        "pair" => {
+            let id = args.get(1).cloned().unwrap_or_default();
+            if !wait_for(10, &|s| s.nearby.contains_key(&id)) {
+                anyhow::bail!("device {id} not found on the network");
+            }
+            svc.pair_with(&id);
+            let t = Instant::now();
+            while t.elapsed() < Duration::from_secs(130) && !confirm_pairing() {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+        "sync" => {
+            let peers: Vec<String> = shared.lock().unwrap().peers.iter().map(|p| p.id.clone()).collect();
+            wait_for(6, &|s| peers.iter().all(|p| s.nearby.contains_key(p)));
+            svc.sync_all(None);
+            std::thread::sleep(Duration::from_millis(300));
+            wait_for(300, &|s| s.syncing.is_empty());
+            let s = shared.lock().unwrap();
+            for p in &s.peers {
+                println!("{}: {}", p.name, s.status.get(&p.id).map_or("not on the network", |v| v.as_str()));
+            }
+        }
+        "serve" => loop {
+            confirm_pairing();
+            print_messages();
+            std::thread::sleep(Duration::from_millis(200));
+        },
+        other => anyhow::bail!("unknown --sync command {other} (list, pair ID, sync, serve)"),
+    }
+    print_messages();
+    Ok(())
+}
+
 fn run_probe(game: ctf_loader::GameData, save_dir: Option<PathBuf>) {
     use std::collections::BTreeMap;
     let frames = game.frames.len();

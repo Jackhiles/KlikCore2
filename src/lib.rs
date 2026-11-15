@@ -16,3 +16,4 @@ pub mod log;
 pub mod render;
 /// Object runtime and event interpreter (no rendering dependencies).
 pub mod runtime;
+pub mod sync;

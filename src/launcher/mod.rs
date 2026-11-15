@@ -2,6 +2,7 @@
 //! files with Play, desktop-shortcut and remove buttons. Games run in their own process.
 
 mod covers;
+mod devices;
 pub mod library;
 pub mod steam;
 pub mod steam_shortcuts;
@@ -238,6 +239,16 @@ struct Launcher {
     grid_cols: usize,
     /// Scroll the selected game into view.
     reveal: bool,
+    /// Pairing and save sync with other devices on the network.
+    sync: Option<crate::sync::Service>,
+    devices_page: bool,
+    /// Showing a paired device's games (its id).
+    remote_games_for: Option<String>,
+    /// "Unpair" waiting for a second click (device id).
+    unpair_confirm: Option<String>,
+    /// Save folders of games running at the last check (to sync when they close).
+    sync_running: Vec<String>,
+    sync_started: bool,
 }
 
 impl Launcher {
@@ -291,6 +302,12 @@ impl Launcher {
             block_input: false,
             grid_cols: 1,
             reveal: false,
+            sync: (std::env::var_os("REKINDLE_NO_SYNC").is_none()).then(crate::sync::Service::start),
+            devices_page: false,
+            remote_games_for: None,
+            unpair_confirm: None,
+            sync_running: Vec::new(),
+            sync_started: false,
         }
     }
 
@@ -522,6 +539,7 @@ impl Launcher {
     }
 
     fn update(&mut self) {
+        self.update_sync();
         while let Ok(m) = self.rx.try_recv() {
             match m {
                 Msg::Found(e) => {
@@ -570,7 +588,8 @@ impl Launcher {
     fn draw(&mut self) {
         let (sw, sh) = (screen_width(), screen_height());
         clear_background(BG);
-        self.block_input = self.menu.is_some();
+        let pairing = self.sync.as_ref().is_some_and(|s| s.shared.lock().map(|g| g.pair.is_some()).unwrap_or(false));
+        self.block_input = self.menu.is_some() || pairing;
         // Read the controller every frame (panels use B / A from it too).
         let pad_action = self.pad_nav();
         let top = HEADER_H;
@@ -582,6 +601,8 @@ impl Launcher {
             self.draw_settings_panel(top, sh - STATUS_H);
         } else if self.show_log {
             self.draw_log(top, sh - STATUS_H);
+        } else if self.devices_page {
+            self.draw_devices_page(top);
         } else {
             self.draw_library(sw, sh, pad_action);
         }
@@ -591,6 +612,7 @@ impl Launcher {
         // The header last, so scrolled content slides under it.
         self.draw_header(sw);
         self.draw_overlays(sw, sh);
+        self.draw_pair_prompt(sw, sh);
     }
 
     /// Find Fusion games in Steam and add them (linked in place, or copied to storage).
@@ -689,7 +711,7 @@ pub async fn run() {
     l.check_steam_shortcut();
     // Testing: REKINDLE_LAUNCHER_SHOT=<file.png> saves the window once artwork has loaded
     // (or after 20 s), then exits. REKINDLE_LAUNCHER_SELECT=<n> selects the n-th game,
-    // REKINDLE_LAUNCHER_PAGE=settings|steam|log opens that page.
+    // REKINDLE_LAUNCHER_PAGE=settings|steam|log|devices opens that page.
     let shot = std::env::var_os("REKINDLE_LAUNCHER_SHOT").map(PathBuf::from);
     if let Some(n) = std::env::var("REKINDLE_LAUNCHER_SELECT").ok().and_then(|v| v.parse::<usize>().ok()) {
         l.selected = Some(n);
@@ -698,6 +720,7 @@ pub async fn run() {
         Ok("settings") if !l.entries.is_empty() => l.game_action(l.selected.unwrap_or(0).min(l.entries.len() - 1), view::ACT_SETTINGS),
         Ok("steam") => l.steam_panel = true,
         Ok("log") => l.show_log = true,
+        Ok("devices") => l.devices_page = true,
         _ => {}
     }
     let started = get_time();

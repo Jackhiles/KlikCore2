@@ -11,6 +11,7 @@ pub(super) enum MenuAction {
     SteamGames,
     PlayLog,
     DataFolder,
+    Devices,
     ToSteam(usize),
     Shortcut(usize),
     Mods(usize),
@@ -105,7 +106,10 @@ impl Launcher {
         let menu_btn = Rect::new(sw - 24.0 - 40.0, 14.0, 40.0, 36.0);
         let add_btn = Rect::new(menu_btn.x - 10.0 - 92.0, 14.0, 92.0, 36.0);
         if self.icon_button(menu_btn, draw_dots) {
-            let items = vec![("Steam games", MenuAction::SteamGames), ("Play log", MenuAction::PlayLog), ("Open data folder", MenuAction::DataFolder)];
+            let mut items = vec![("Steam games", MenuAction::SteamGames), ("Play log", MenuAction::PlayLog), ("Open data folder", MenuAction::DataFolder)];
+            if self.sync.is_some() {
+                items.insert(0, ("Devices and sync", MenuAction::Devices));
+            }
             self.open_menu(menu_btn.x + menu_btn.w, menu_btn.y + menu_btn.h + 6.0, items, true);
         }
         if self.button(add_btn, "     Add", true, idle) {
@@ -158,7 +162,7 @@ impl Launcher {
 
     /// The library screen is showing (no panel open).
     pub(super) fn library_view(&self) -> bool {
-        self.steam_confirm.is_none() && !self.steam_panel && self.settings_panel.is_none() && !self.show_log
+        self.steam_confirm.is_none() && !self.steam_panel && self.settings_panel.is_none() && !self.show_log && !self.devices_page
     }
 
     fn open_menu(&mut self, right: f32, y: f32, items: Vec<(&'static str, MenuAction)>, align_right: bool) {
@@ -505,17 +509,27 @@ impl Launcher {
                 }
             }
             MenuAction::SteamGames => {
+                self.devices_page = false;
                 self.steam_panel = true;
                 self.settings_panel = None;
                 self.show_log = false;
             }
             MenuAction::PlayLog => {
+                self.devices_page = false;
                 self.show_log = true;
                 self.steam_panel = false;
                 self.settings_panel = None;
                 self.scroll = 0.0;
             }
             MenuAction::DataFolder => self.open_data_folder(),
+            MenuAction::Devices => {
+                self.devices_page = true;
+                self.remote_games_for = None;
+                self.steam_panel = false;
+                self.settings_panel = None;
+                self.show_log = false;
+                self.scroll = 0.0;
+            }
             MenuAction::ToSteam(i) => {
                 if steam_shortcuts::steam_running() && !steam_shortcuts::in_gaming_mode() {
                     self.steam_confirm = Some(i);

@@ -105,6 +105,20 @@ Steam) and adds them, either linked where Steam installed them or copied into a 
 keep working after uninstalling from Steam). Copies from Steam are marked "(Steam)" in the library. From the command
 line, `rekindle --find-steam` lists them.
 
+### Devices and save sync
+Rekindle on several devices on the same network (PCs, Steam Deck, phone) can pair and keep their saves in sync. Open
+**... > Devices and sync** in the launcher: other devices running Rekindle appear under *On this network*; press
+**Pair** and check that both screens show the same 6-digit code. Paired devices then sync saves automatically when the
+launcher opens and when you close a game: files only one device has are copied, the newer version of a changed file wins,
+deletions are followed, and anything replaced or deleted is backed up to `<game>/backups/sync-<time>/` first. A game
+that is running on either device is skipped. **Games** on a paired device lists its library and copies a game here
+(into `<data dir>/games/`), which is how games get onto a phone.
+
+Devices find each other with UDP broadcasts on port 48631 and talk over TCP port 48632 (allow Rekindle through the
+firewall when asked). Pairing is an X25519 key exchange confirmed by comparing the code; after that every connection is
+authenticated and encrypted (ChaCha20-Poly1305) with the paired key. Only paired devices can read saves or game files.
+Without the launcher: `rekindle --sync list`, `--sync pair ID`, `--sync sync`, `--sync serve`.
+
 Play time is logged per session in `%APPDATA%\Rekindle\playtime.tsv`; the launcher shows each game's total and last
 play, and **Play log** lists every session. **Open folder** opens the Rekindle folder with saves, the play log and each
 game's `rekindle.log`. A game's own "end application" action closes its window.
