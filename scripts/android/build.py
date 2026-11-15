@@ -192,7 +192,7 @@ SURFACE_SCALE = """    // Rekindle: pixels of the view per pixel of the surface 
 
     void updateScale(int w, int h) {
         float density = getResources().getDisplayMetrics().density;
-        float s = uiScale ? Math.max(1.0f, Math.min(Math.min(w, h) / 432.0f, density)) : 1.0f;
+        float s = 1.0f; // the launcher scales itself (src/launcher/mod.rs ui_scale)
         scale = s;
         if (s > 1.0f) {
             getHolder().setFixedSize(Math.round(w / s), Math.round(h / s));
@@ -201,10 +201,34 @@ SURFACE_SCALE = """    // Rekindle: pixels of the view per pixel of the surface 
         }
     }
 
+    // Android sometimes drops the fixed surface size while the window settles (bars
+    // hiding, rotation), leaving the UI drawn small in a corner: check twice a second and
+    // apply it again when the surface isn't the size it should be.
+    boolean healing = false;
+    final Runnable heal = new Runnable() {
+        @Override
+        public void run() {
+            if (uiScale && scale > 1.0f && getWidth() > 0) {
+                int ww = Math.round(getWidth() / scale);
+                int hh = Math.round(getHeight() / scale);
+                android.graphics.Rect f = getHolder().getSurfaceFrame();
+                if (f.width() != ww || f.height() != hh) {
+                    getHolder().setSizeFromLayout();
+                    getHolder().setFixedSize(ww, hh);
+                }
+            }
+            postDelayed(this, 500);
+        }
+    };
+
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
         updateScale(w, h);
+        if (!healing) {
+            healing = true;
+            postDelayed(heal, 500);
+        }
     }
 
     public void setUiScale(boolean on) {
@@ -260,6 +284,88 @@ IMMERSIVE = """    public void hideSystemBars() {
 """
 
 
+# Home-screen shortcuts that open one game: pinned through ShortcutManager; the game's
+# path rides in the intent and Rust asks for it with takeLaunchGame().
+SHORTCUTS = """    String launchGame = null;
+    boolean firstIntentTaken = false;
+
+    void takeGameFrom(Intent i) {
+        if (i != null) {
+            String g = i.getStringExtra("rekindle_game");
+            if (g != null) {
+                launchGame = g;
+            }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        takeGameFrom(intent);
+    }
+
+    public void goHome() {
+        moveTaskToBack(true);
+    }
+
+    public String takeLaunchGame() {
+        if (!firstIntentTaken) {
+            firstIntentTaken = true;
+            takeGameFrom(getIntent());
+        }
+        String g = launchGame;
+        launchGame = null;
+        return g == null ? "" : g;
+    }
+
+    public boolean pinShortcut(String id, String label, String iconPath, String gamePath) {
+        if (Build.VERSION.SDK_INT < 26) {
+            return false;
+        }
+        android.content.pm.ShortcutManager sm = getSystemService(android.content.pm.ShortcutManager.class);
+        if (sm == null || !sm.isRequestPinShortcutSupported()) {
+            return false;
+        }
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.setAction(Intent.ACTION_VIEW);
+        intent.putExtra("rekindle_game", gamePath);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        android.content.pm.ShortcutInfo.Builder b = new android.content.pm.ShortcutInfo.Builder(this, id)
+            .setShortLabel(label)
+            .setLongLabel(label)
+            .setIntent(intent);
+        android.graphics.Bitmap bmp = iconPath.isEmpty() ? null : android.graphics.BitmapFactory.decodeFile(iconPath);
+        if (bmp != null) {
+            b.setIcon(android.graphics.drawable.Icon.createWithAdaptiveBitmap(padForAdaptive(bmp)));
+        } else {
+            b.setIcon(android.graphics.drawable.Icon.createWithResource(this, getApplicationInfo().icon));
+        }
+        try {
+            return sm.requestPinShortcut(b.build(), null);
+        } catch (Exception e) {
+            Log.w("Rekindle", "pinShortcut: " + e);
+            return false;
+        }
+    }
+
+    // Adaptive icons are cropped to a mask: keep the game's icon inside the safe area on
+    // a dark backdrop.
+    android.graphics.Bitmap padForAdaptive(android.graphics.Bitmap src) {
+        int size = 432;
+        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas c = new android.graphics.Canvas(out);
+        c.drawColor(0xff17171c);
+        int inner = 264;
+        int o = (size - inner) / 2;
+        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+        c.drawBitmap(src, null, new android.graphics.Rect(o, o, o + inner, o + inner), p);
+        return out;
+    }
+
+"""
+
+
 def write_java(src_dir, out_dir):
     """miniquad's activity with our package and library name; `//%` plugin hooks removed."""
     if out_dir.exists():
@@ -295,7 +401,15 @@ def write_java(src_dir, out_dir):
         "    protected void onResume() {\n        super.onResume();",
         "    protected void onResume() {\n        super.onResume();\n        hideSystemBars();",
     )
-    activity = activity.replace(anchors[1], IMMERSIVE + anchors[1])
+    activity = activity.replace(anchors[1], IMMERSIVE + SHORTCUTS + anchors[1])
+    # Back always goes to Rekindle (as the key it is), never to Android's default (which
+    # put the app in the background mid-game when the view didn't have focus). The
+    # launcher leaves the app itself (goHome) when Back is pressed on the library.
+    back = "        super.onBackPressed();"
+    if back not in activity:
+        die("miniquad's MainActivity.java changed: onBackPressed not found")
+    activity = activity.replace(back, "        QuadNative.surfaceOnKeyDown(KeyEvent.KEYCODE_BACK);
+        QuadNative.surfaceOnKeyUp(KeyEvent.KEYCODE_BACK);")
     files = [
         (out_dir / Path(*PACKAGE.split(".")) / "MainActivity.java", activity),
         (out_dir / "quad_native" / "QuadNative.java", (src_dir / "QuadNative.java").read_text(encoding="utf-8")),

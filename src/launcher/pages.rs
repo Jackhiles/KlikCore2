@@ -26,7 +26,7 @@ impl Launcher {
     /// Page title with a back arrow; scrolls with the content. Returns the layout and
     /// whether the page should close (arrow, Escape or the controller's B).
     pub(super) fn page_start(&mut self, top: f32, title: &str, subtitle: &str) -> (Page, bool) {
-        let sw = screen_width();
+        let sw = sw();
         let w = (sw - 48.0).min(MAX_W);
         let x = (sw - w) / 2.0;
         let y = top + 24.0 - self.scroll;
@@ -46,7 +46,7 @@ impl Launcher {
     /// Scroll a page whose content ends at `end` (screen y, already scrolled).
     pub(super) fn page_scroll(&mut self, top: f32, end: f32) {
         let content = end + self.scroll - top + 40.0;
-        let max = (content - (screen_height() - top)).max(0.0);
+        let max = (content - (sh() - top)).max(0.0);
         if !self.block_input {
             self.scroll -= mouse_wheel().1 * 0.5;
         }
@@ -66,7 +66,7 @@ impl Launcher {
         let mut x = right - total;
         rrect(x, y, total, h, 10.0, BG);
         x += 4.0;
-        let mouse = Vec2::from(mouse_position());
+        let mouse = mouse();
         let mut clicked = None;
         for (k, (o, w)) in options.iter().zip(&widths).enumerate() {
             let r = Rect::new(x, y + 4.0, *w, h - 8.0);
@@ -317,7 +317,7 @@ impl Launcher {
 
     /// Steam is open: confirm restarting it to add a shortcut.
     pub(super) fn draw_steam_confirm(&mut self, top: f32, i: usize) {
-        let (sw, sh) = (screen_width(), screen_height());
+        let (sw, sh) = (sw(), sh());
         let title = self.entries.get(i).map(|e| e.title.clone()).unwrap_or_default();
         let w = (sw - 48.0).min(560.0);
         let lines = [
@@ -363,7 +363,7 @@ impl Launcher {
             let row = 44.0;
             let h = self.sessions.len() as f32 * row + 12.0;
             // Only the visible part of a long log is drawn.
-            let (y0, sh) = (p.y, screen_height());
+            let (y0, sh) = (p.y, sh());
             rrect(p.x, y0, p.w, h, 12.0, CARD);
             for (k, s) in self.sessions.iter().rev().enumerate() {
                 let y = y0 + 6.0 + k as f32 * row;

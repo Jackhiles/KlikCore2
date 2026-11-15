@@ -92,6 +92,33 @@ const HEADER_H: f32 = 64.0;
 /// Space kept free at the bottom of panels (toasts appear there).
 const STATUS_H: f32 = 30.0;
 
+/// Interface scale: phones draw the launcher larger (about 432 units on the short side,
+/// rendered at full resolution so text stays sharp); 1 on desktops.
+/// `REKINDLE_UI_SCALE` overrides it (testing).
+pub(crate) fn ui_scale() -> f32 {
+    if let Some(s) = std::env::var("REKINDLE_UI_SCALE").ok().and_then(|v| v.parse::<f32>().ok()) {
+        return s.clamp(0.5, 4.0);
+    }
+    if cfg!(target_os = "android") {
+        (screen_width().min(screen_height()) / 432.0).clamp(1.0, 3.0)
+    } else {
+        1.0
+    }
+}
+
+/// Screen size and pointer in interface units.
+pub(crate) fn sw() -> f32 {
+    screen_width() / ui_scale()
+}
+
+pub(crate) fn sh() -> f32 {
+    screen_height() / ui_scale()
+}
+
+pub(crate) fn mouse() -> Vec2 {
+    Vec2::from(mouse_position()) / ui_scale()
+}
+
 /// Rekindle's icon (assets/icon, drawn by make_icon.py) and the launcher's UI font
 /// (Inter, SIL Open Font License; see assets/fonts).
 pub const ICON_PNG: &[u8] = include_bytes!("../../assets/icon/rekindle-256.png");
@@ -259,6 +286,10 @@ struct Launcher {
     unpair_confirm: Option<String>,
     /// Typing a device address on the Devices page.
     addr_input: Option<String>,
+    /// "Get games": choosing which paired device to copy from.
+    games_chooser: bool,
+    /// The games page was opened straight from "Get games" (Back returns to the library).
+    games_from_menu: bool,
     /// Where the current press / touch started, whether it became a drag (which scrolls
     /// and cancels taps), and the scroll position when it started.
     press_pos: Option<Vec2>,
@@ -270,6 +301,9 @@ struct Launcher {
     /// Android: the game to run in this window (there are no separate processes).
     #[cfg(target_os = "android")]
     play_request: Option<PathBuf>,
+    /// Android: when to next ask whether a home-screen shortcut requested a game.
+    #[cfg(target_os = "android")]
+    next_shortcut_check: f64,
 }
 
 impl Launcher {
@@ -328,6 +362,8 @@ impl Launcher {
             remote_games_for: None,
             unpair_confirm: None,
             addr_input: None,
+            games_chooser: false,
+            games_from_menu: false,
             press_pos: None,
             dragging: false,
             drag_scroll: 0.0,
@@ -335,6 +371,8 @@ impl Launcher {
             sync_started: false,
             #[cfg(target_os = "android")]
             play_request: None,
+            #[cfg(target_os = "android")]
+            next_shortcut_check: 0.0,
         }
     }
 
@@ -434,12 +472,14 @@ impl Launcher {
     }
 
     fn text(&self, s: &str, x: f32, y: f32, size: u16, color: Color) {
-        let params = TextParams { font: self.font.as_ref(), font_size: size, color, ..Default::default() };
+        let k = ui_scale();
+        let params = TextParams { font: self.font.as_ref(), font_size: (size as f32 * k).round() as u16, font_scale: 1.0 / k, color, ..Default::default() };
         draw_text_ex(s, x, y, params);
     }
 
     fn text_width(&self, s: &str, size: u16) -> f32 {
-        measure_text(s, self.font.as_ref(), size, 1.0).width
+        let k = ui_scale();
+        measure_text(s, self.font.as_ref(), (size as f32 * k).round() as u16, 1.0 / k).width
     }
 
     /// `s` shortened with "..." to fit `max_w` pixels.
@@ -455,12 +495,14 @@ impl Launcher {
     }
 
     fn bold_text(&self, s: &str, x: f32, y: f32, size: u16, color: Color) {
-        let params = TextParams { font: self.bold.as_ref().or(self.font.as_ref()), font_size: size, color, ..Default::default() };
+        let k = ui_scale();
+        let params = TextParams { font: self.bold.as_ref().or(self.font.as_ref()), font_size: (size as f32 * k).round() as u16, font_scale: 1.0 / k, color, ..Default::default() };
         draw_text_ex(s, x, y, params);
     }
 
     fn bold_width(&self, s: &str, size: u16) -> f32 {
-        measure_text(s, self.bold.as_ref().or(self.font.as_ref()), size, 1.0).width
+        let k = ui_scale();
+        measure_text(s, self.bold.as_ref().or(self.font.as_ref()), (size as f32 * k).round() as u16, 1.0 / k).width
     }
 
     fn logo(&mut self) -> Option<Texture2D> {
@@ -474,7 +516,7 @@ impl Launcher {
 
     /// A button; returns true when clicked.
     fn button(&self, r: Rect, label: &str, accent: bool, enabled: bool) -> bool {
-        let hover = enabled && !self.block_input && r.contains(Vec2::from(mouse_position()));
+        let hover = enabled && !self.block_input && r.contains(mouse());
         let base = if accent { ACCENT } else { BUTTON };
         let color = if !enabled {
             view::mix(BG, base, 0.45)
@@ -497,12 +539,12 @@ impl Launcher {
             && !self.dragging
             && is_mouse_button_released(MouseButton::Left)
             && self.press_pos.is_some_and(|p| r.contains(p))
-            && r.contains(Vec2::from(mouse_position()))
+            && r.contains(mouse())
     }
 
     /// Track presses and drags: dragging vertically scrolls whatever page is open.
     fn track_drag(&mut self) {
-        let m = Vec2::from(mouse_position());
+        let m = mouse();
         if is_mouse_button_pressed(MouseButton::Left) {
             self.press_pos = Some(m);
             self.dragging = false;
@@ -657,17 +699,32 @@ impl Launcher {
     }
 
     fn draw(&mut self) {
-        let (sw, sh) = (screen_width(), screen_height());
+        let (sw, sh) = (sw(), sh());
         clear_background(BG);
+        // Interface units -> pixels (phones draw everything larger).
+        let k = ui_scale();
+        if k != 1.0 {
+            set_camera(&Camera2D { target: vec2(sw / 2.0, sh / 2.0), zoom: vec2(2.0 / sw, 2.0 / sh), ..Default::default() });
+        }
         let pairing = self.sync.as_ref().is_some_and(|s| s.shared.lock().map(|g| g.pair.is_some()).unwrap_or(false));
         self.block_input = self.menu.is_some() || pairing;
         self.track_drag();
         // Read the controller every frame (panels use B / A from it too).
         let pad_action = self.pad_nav();
         // Android's Back button closes panels and menus like B on a controller.
+        // On the library itself it clears the search, then leaves the app.
         #[cfg(target_os = "android")]
         if is_key_pressed(KeyCode::Back) {
-            self.pad_back = true;
+            if self.library_view() && self.menu.is_none() && !pairing {
+                if self.search.is_empty() {
+                    crate::android::go_home();
+                } else {
+                    self.search.clear();
+                    macroquad::miniquad::window::show_keyboard(false);
+                }
+            } else {
+                self.pad_back = true;
+            }
         }
         let top = HEADER_H;
         if let Some(i) = self.steam_confirm {
@@ -691,6 +748,7 @@ impl Launcher {
         self.draw_overlays(sw, sh);
         self.draw_pair_prompt(sw, sh);
         self.end_press();
+        set_default_camera();
     }
 
     /// Find Fusion games in Steam and add them (linked in place, or copied to storage).
@@ -818,6 +876,25 @@ pub async fn run() {
     }
     let started = get_time();
     loop {
+        // Android: a home-screen shortcut opened the app (or brought it back) for a game.
+        #[cfg(target_os = "android")]
+        if get_time() >= l.next_shortcut_check {
+            l.next_shortcut_check = get_time() + 0.4;
+            if let Some(game) = crate::android::take_launch_game() {
+                if game.is_file() {
+                    if !l.has(&game) {
+                        if let Some(e) = library::inspect(&game) {
+                            if library::add(&mut l.entries, e) {
+                                library::save(&l.entries);
+                            }
+                        }
+                    }
+                    l.play_request = Some(game);
+                } else {
+                    l.say(format!("{} isn't on this device any more.", game.display()));
+                }
+            }
+        }
         // Android: play the chosen game in this window, then come back to the library.
         #[cfg(target_os = "android")]
         if let Some(game) = l.play_request.take() {

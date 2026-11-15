@@ -70,6 +70,23 @@ impl Launcher {
         }
     }
 
+    /// Android: pin a home-screen shortcut that opens a game, with its icon.
+    #[cfg(target_os = "android")]
+    pub(super) fn home_screen_shortcut(&mut self, i: usize) {
+        let Some(e) = self.entries.get(i).cloned() else { return };
+        // A sharp icon: the game's own, at 192 px (the library keeps a small one).
+        let icon = library::data_dir().join("icons").join(format!("{}-192.png", library::game_key(&e.path)));
+        if !icon.is_file() {
+            if let Some(img) = crate::ctf_loader::GameData::load(&e.path).ok().and_then(|g| g.icon) {
+                let _ = std::fs::create_dir_all(icon.parent().unwrap_or(std::path::Path::new(".")));
+                let _ = library::write_png(&icon, 192, &img.resized(192));
+            }
+        }
+        let id = format!("game-{}", library::game_key(&e.path));
+        let ok = crate::android::pin_shortcut(&id, &e.title, icon.is_file().then_some(icon.as_path()), &e.path);
+        self.say(if ok { format!("Adding {} to the home screen...", e.title) } else { "This phone's home screen doesn't accept shortcuts.".to_string() });
+    }
+
     /// A game file's save folder name (what the sync service calls the game).
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub(super) fn save_folder_of(&self, game: &std::path::Path) -> Option<String> {
@@ -154,6 +171,10 @@ impl Launcher {
         };
         if let Some(peer) = self.remote_games_for.clone() {
             self.draw_remote_games(top, &svc, &peer);
+            return;
+        }
+        if self.games_chooser {
+            self.draw_games_chooser(top, &svc);
             return;
         }
         let (mut p, close) = self.page_start(top, "Devices", "Pair Rekindle on your other computers, Steam Deck or phone to keep saves in sync on the same network.");
@@ -386,6 +407,84 @@ impl Launcher {
         self.page_scroll(top, p.y);
         if close {
             self.remote_games_for = None;
+            self.scroll = 0.0;
+            if self.games_from_menu && !self.games_chooser {
+                self.devices_page = false;
+                self.games_from_menu = false;
+            }
+        }
+    }
+
+    /// "Get games": straight to the game list of the one paired device on the network, or a
+    /// choice when there are several (or a pointer to pairing when there are none).
+    pub(super) fn open_get_games(&mut self) {
+        let Some(svc) = self.sync.clone() else { return };
+        let online: Vec<String> = {
+            let s = svc.shared.lock().unwrap_or_else(|e| e.into_inner());
+            s.peers.iter().filter(|p| s.nearby.contains_key(&p.id)).map(|p| p.id.clone()).collect()
+        };
+        self.devices_page = true;
+        self.steam_panel = false;
+        self.settings_panel = None;
+        self.show_log = false;
+        self.scroll = 0.0;
+        self.games_from_menu = true;
+        if let [only] = online.as_slice() {
+            self.games_chooser = false;
+            svc.request_library(only);
+            self.remote_games_for = Some(only.clone());
+        } else {
+            self.games_chooser = true;
+            self.remote_games_for = None;
+        }
+    }
+
+    /// Which paired device to copy games from.
+    fn draw_games_chooser(&mut self, top: f32, svc: &crate::sync::Service) {
+        let (mut p, close) = self.page_start(top, "Get games", "Copy games from Rekindle on another device. Their saves sync too.");
+        let (peers, nearby) = {
+            let s = svc.shared.lock().unwrap_or_else(|e| e.into_inner());
+            (s.peers.clone(), s.nearby.clone())
+        };
+        let online: Vec<_> = peers.iter().filter(|p| nearby.contains_key(&p.id)).collect();
+        if online.is_empty() {
+            rrect(p.x, p.y, p.w, 92.0, 12.0, CARD);
+            let msg = if peers.is_empty() {
+                "No paired devices yet. Pair this device with Rekindle on your PC first."
+            } else {
+                "None of your paired devices is on the network right now. Open Rekindle on one of them."
+            };
+            let msg = self.fit(msg, 15, p.w - 2.0 * CARD_PAD - 170.0);
+            self.text(&msg, p.x + CARD_PAD, p.y + 52.0, 15, MUTED);
+            if self.button(Rect::new(p.x + p.w - CARD_PAD - 150.0, p.y + 26.0, 150.0, 40.0), "Pair a device", true, true) {
+                self.games_chooser = false;
+                self.games_from_menu = false;
+            }
+            p.y += 92.0;
+        } else {
+            let y0 = p.y;
+            self.card_behind(p.x, y0, p.w, y0 + online.len() as f32 * DEV_ROW);
+            for (k, peer) in online.iter().enumerate() {
+                let y = y0 + k as f32 * DEV_ROW;
+                if k > 0 {
+                    draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD, TEXT, 0.06));
+                }
+                let name = self.fit(&peer.name, 17, p.w - 2.0 * CARD_PAD - 170.0);
+                self.text(&name, p.x + CARD_PAD, y + 32.0, 17, TEXT);
+                self.text("On this network", p.x + CARD_PAD, y + 54.0, 14, MUTED);
+                if self.button(Rect::new(p.x + p.w - CARD_PAD - 150.0, y + (DEV_ROW - 40.0) / 2.0, 150.0, 40.0), "Show games", true, true) {
+                    svc.request_library(&peer.id);
+                    self.remote_games_for = Some(peer.id.clone());
+                    self.scroll = 0.0;
+                }
+            }
+            p.y = y0 + online.len() as f32 * DEV_ROW;
+        }
+        self.page_scroll(top, p.y);
+        if close {
+            self.games_chooser = false;
+            self.devices_page = false;
+            self.games_from_menu = false;
             self.scroll = 0.0;
         }
     }

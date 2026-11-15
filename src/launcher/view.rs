@@ -12,6 +12,7 @@ pub(super) enum MenuAction {
     PlayLog,
     DataFolder,
     Devices,
+    GetGames,
     ToSteam(usize),
     Shortcut(usize),
     Mods(usize),
@@ -90,7 +91,7 @@ impl Launcher {
 
     /// A small square button with a drawn icon; returns true when clicked.
     pub(super) fn icon_button(&self, r: Rect, draw_icon: impl Fn(f32, f32, Color)) -> bool {
-        let hover = !self.block_input && r.contains(Vec2::from(mouse_position()));
+        let hover = !self.block_input && r.contains(mouse());
         rrect(r.x, r.y, r.w, r.h, 8.0, if hover { mix(BUTTON, TEXT, 0.08) } else { BUTTON });
         draw_icon(r.x + r.w / 2.0, r.y + r.h / 2.0, TEXT);
         self.tap(r)
@@ -119,10 +120,13 @@ impl Launcher {
         }
         if self.button(add_btn, "     Add", true, idle) {
             let mut items = if cfg!(target_os = "android") {
-                vec![("Get games from a paired device", MenuAction::Devices)]
+                vec![("Get games from a paired device", MenuAction::GetGames)]
             } else {
                 vec![("Add a game...", MenuAction::AddGame), ("Add a folder of games...", MenuAction::AddFolder)]
             };
+            if !cfg!(target_os = "android") && self.sync.is_some() {
+                items.push(("Get games from a paired device", MenuAction::GetGames));
+            }
             if self.has_steam {
                 items.push(("Find games in Steam", MenuAction::SteamGames));
             }
@@ -245,7 +249,7 @@ impl Launcher {
         let rows = vis.len().div_ceil(cols);
         let view_h = sh - top;
         let max_scroll = (rows as f32 * cell_h + 24.0 - view_h).max(0.0);
-        let mouse = Vec2::from(mouse_position());
+        let mouse = mouse();
         if mouse.x < grid_right && !self.block_input {
             self.scroll -= mouse_wheel().1 * 0.5;
         }
@@ -348,7 +352,7 @@ impl Launcher {
         let hint = self.fit(hint, 16, sw - 48.0);
         self.text(&hint, (sw - self.text_width(&hint, 16)) / 2.0, cy + 32.0, 16, MUTED);
         let mut buttons: Vec<(&str, MenuAction, bool)> = if cfg!(target_os = "android") {
-            vec![("Get games from a PC", MenuAction::Devices, true)]
+            vec![("Get games from a PC", MenuAction::GetGames, true), ("Pair a device", MenuAction::Devices, false)]
         } else {
             vec![("Add a game", MenuAction::AddGame, true), ("Add a folder", MenuAction::AddFolder, false)]
         };
@@ -466,10 +470,12 @@ impl Launcher {
                 items.push(("Add to Steam", MenuAction::ToSteam(i)));
             }
             if !missing {
-                items.push(("Desktop shortcut", MenuAction::Shortcut(i)));
+                items.push((if cfg!(target_os = "android") { "Add to home screen" } else { "Desktop shortcut" }, MenuAction::Shortcut(i)));
             }
-            items.push(("Mods folder", MenuAction::Mods(i)));
-            items.push(("Open game folder", MenuAction::GameFolder(i)));
+            if !cfg!(target_os = "android") {
+                items.push(("Mods folder", MenuAction::Mods(i)));
+                items.push(("Open game folder", MenuAction::GameFolder(i)));
+            }
             items.push(("Refresh artwork", MenuAction::RefreshArt(i)));
             items.push(("Remove from library", MenuAction::Remove(i)));
             self.open_menu(more.x + more.w, more.y + more.h + 6.0, items, true);
@@ -546,7 +552,10 @@ impl Launcher {
                 self.scroll = 0.0;
             }
             MenuAction::DataFolder => self.open_data_folder(),
+            MenuAction::GetGames => self.open_get_games(),
             MenuAction::Devices => {
+                self.games_chooser = false;
+                self.games_from_menu = false;
                 self.devices_page = true;
                 self.remote_games_for = None;
                 self.steam_panel = false;
@@ -561,6 +570,9 @@ impl Launcher {
                     self.add_to_steam(i);
                 }
             }
+            #[cfg(target_os = "android")]
+            MenuAction::Shortcut(i) => self.home_screen_shortcut(i),
+            #[cfg(not(target_os = "android"))]
             MenuAction::Shortcut(i) => {
                 let e = self.entries[i].clone();
                 match library::create_shortcut(&e.path, &e.title) {
@@ -612,7 +624,7 @@ impl Launcher {
         }
         rrect(m.x + 2.0, m.y + 4.0, w, h, 10.0, mix(BG, Color::new(0.0, 0.0, 0.0, 1.0), 0.6));
         rrect(m.x, m.y, w, h, 10.0, MENU);
-        let mouse = Vec2::from(mouse_position());
+        let mouse = mouse();
         let mut chosen = None;
         for (k, (label, act)) in m.items.iter().enumerate() {
             let r = Rect::new(m.x + 6.0, m.y + 6.0 + k as f32 * item_h, w - 12.0, item_h);

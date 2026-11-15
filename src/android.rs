@@ -51,6 +51,43 @@ unsafe fn app_dir(env: *mut macroquad::miniquad::native::android::ndk_sys::JNIEn
     (!path.is_null()).then(|| PathBuf::from(get_utf_str!(env, path)))
 }
 
+/// Put the app in the background (Back on the library, like other apps).
+pub(crate) fn go_home() {
+    unsafe {
+        let env = attach_jni_env();
+        call_void_method!(env, ACTIVITY, "goHome", "()V");
+    }
+}
+
+/// A game a home-screen shortcut asked to open (once per request).
+pub(crate) fn take_launch_game() -> Option<PathBuf> {
+    unsafe {
+        let env = attach_jni_env();
+        let s = call_object_method!(env, ACTIVITY, "takeLaunchGame", "()Ljava/lang/String;");
+        if s.is_null() {
+            return None;
+        }
+        let path = get_utf_str!(env, s).to_string();
+        (!path.is_empty()).then(|| PathBuf::from(path))
+    }
+}
+
+/// Ask the home screen to pin a shortcut that opens `game` (Android 8+). `icon` is a PNG
+/// file (or None for Rekindle's icon). Returns false where pinning isn't supported.
+pub(crate) fn pin_shortcut(id: &str, label: &str, icon: Option<&Path>, game: &Path) -> bool {
+    use std::ffi::CString;
+    unsafe {
+        let env = attach_jni_env();
+        let jstr = |s: &str| {
+            let c = CString::new(s.replace('\0', "")).unwrap_or_default();
+            (**env).NewStringUTF.unwrap()(env, c.as_ptr())
+        };
+        let icon = icon.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+        let (a, b, c, d) = (jstr(id), jstr(label), jstr(&icon), jstr(&game.to_string_lossy()));
+        macroquad::miniquad::call_bool_method!(env, ACTIVITY, "pinShortcut", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z", a, b, c, d) != 0
+    }
+}
+
 /// Run a game inside the launcher's window until it ends (then any game it asked to start,
 /// as launchers do). Returns an error message when a game can't be loaded.
 pub(crate) async fn play(path: &Path) -> Result<(), String> {
