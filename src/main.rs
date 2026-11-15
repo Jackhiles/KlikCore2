@@ -136,7 +136,8 @@ struct Cli {
 
     /// Devices on the local network (no game needed): `list` shows nearby and paired
     /// devices, `pair ID` pairs with one (confirming the code here), `sync` syncs saves with
-    /// every paired device that's online, `serve` stays online and accepts pairing.
+    /// every paired device that's online, `games ID` lists a paired device's games (copy one
+    /// with `fetch ID` and REKINDLE_FETCH=<number>), `serve` stays online and accepts pairing.
     #[arg(long, num_args = 1..=2, value_names = ["COMMAND", "ID"])]
     sync: Option<Vec<String>>,
 
@@ -431,6 +432,7 @@ fn sync_cli(args: &[String]) -> Result<()> {
     use rekindle::sync::Service;
     use std::time::Duration;
     let svc = Service::start();
+    svc.shared.lock().unwrap().library = rekindle::launcher::library::load().into_iter().map(|e| (e.title, e.path)).collect();
     println!("this device: {} ({}), port {}", svc.me.name, svc.me.id, svc.port);
     let shared = svc.shared.clone();
     let wait_for = |secs: u64, done: &dyn Fn(&rekindle::sync::Shared) -> bool| {
@@ -503,6 +505,35 @@ fn sync_cli(args: &[String]) -> Result<()> {
             let s = shared.lock().unwrap();
             for p in &s.peers {
                 println!("{}: {}", p.name, s.status.get(&p.id).map_or("not on the network", |v| v.as_str()));
+            }
+        }
+        "games" | "fetch" => {
+            let id = args.get(1).cloned().unwrap_or_default();
+            wait_for(10, &|s| s.nearby.contains_key(&id));
+            svc.request_library(&id);
+            wait_for(30, &|s| s.remote_library.contains_key(&id));
+            let list = shared.lock().unwrap().remote_library.get(&id).cloned();
+            let games = match list {
+                Some(Ok(g)) => g,
+                Some(Err(e)) => anyhow::bail!("{e}"),
+                None => anyhow::bail!("no answer from {id}"),
+            };
+            if args[0] == "games" {
+                for g in &games {
+                    println!("  {}  {}  ({} files, {} bytes)", g.index, g.title, g.files, g.size);
+                }
+            } else {
+                let n: usize = std::env::var("REKINDLE_FETCH").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+                let g = games.iter().find(|g| g.index == n).ok_or_else(|| anyhow::anyhow!("no game {n}"))?;
+                svc.fetch_game(&id, g);
+                wait_for(3600, &|s| s.transfers.iter().all(|t| t.result.is_some()));
+                for t in &shared.lock().unwrap().transfers {
+                    match &t.result {
+                        Some(Ok(p)) => println!("copied {} ({} bytes) to {}", t.title, t.done, p.display()),
+                        Some(Err(e)) => println!("copy of {} failed: {e}", t.title),
+                        None => println!("copy of {} still running", t.title),
+                    }
+                }
             }
         }
         "serve" => loop {

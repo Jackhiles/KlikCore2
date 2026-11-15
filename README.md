@@ -117,7 +117,7 @@ that is running on either device is skipped. **Games** on a paired device lists 
 Devices find each other with UDP broadcasts on port 48631 and talk over TCP port 48632 (allow Rekindle through the
 firewall when asked). Pairing is an X25519 key exchange confirmed by comparing the code; after that every connection is
 authenticated and encrypted (ChaCha20-Poly1305) with the paired key. Only paired devices can read saves or game files.
-Without the launcher: `rekindle --sync list`, `--sync pair ID`, `--sync sync`, `--sync serve`.
+Without the launcher: `rekindle --sync list`, `--sync pair ID`, `--sync sync`, `--sync games ID`, `--sync fetch ID` (with `REKINDLE_FETCH=<number>`), `--sync serve`.
 
 Play time is logged per session in `%APPDATA%\Rekindle\playtime.tsv`; the launcher shows each game's total and last
 play, and **Play log** lists every session. **Open folder** opens the Rekindle folder with saves, the play log and each
