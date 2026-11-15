@@ -75,6 +75,27 @@ fn combinable(vk: u16, controls: &[u16; 8]) -> bool {
 ///
 /// Keys an event only tests together with other letter / number keys ("C, D and Delete held")
 /// are cheat or debug combinations, not controls, and aren't counted.
+/// Keys an event sheet tests as held down ("key is down", "joystick held", Control X):
+/// real-time control such as walking or steering.
+fn held_keys(events: &Events, controls: &[u16; 8], ext_name: &dyn Fn(i16) -> Option<String>) -> HashSet<u16> {
+    let mut out = HashSet::new();
+    for c in events.groups.iter().flat_map(|g| &g.conditions) {
+        let held = matches!((c.object_type, c.num), (-6, -2) | (-6, -8) | (-7, -6))
+            || (c.object_type >= 32 && ext_name(c.object_type).is_some_and(|e| e.eq_ignore_ascii_case("ctrlx")));
+        if held && !c.negated() {
+            out.extend(condition_keys(c, controls, ext_name).into_iter().filter(|(_, positive)| *positive).map(|(k, _)| k));
+        }
+    }
+    out
+}
+
+/// Per frame: how many direction keys (of the d-pad set) it tests as held.
+pub fn frame_held_directions(game: &GameData, dirs: &[u16]) -> Vec<usize> {
+    let controls = game.header.controls[0].keys;
+    let ext_name = |t: i16| game.extensions.iter().find(|e| e.handle as i32 == t as i32 - 32).map(|e| e.name.clone());
+    game.frames.iter().map(|f| held_keys(&f.event_sheet, &controls, &ext_name).iter().filter(|k| dirs.contains(k)).count()).collect()
+}
+
 fn count_events(events: &Events, controls: &[u16; 8], ext_name: &dyn Fn(i16) -> Option<String>, out: &mut KeyCounts) -> bool {
     let mut any_key = false;
     for g in &events.groups {
@@ -178,16 +199,7 @@ pub fn frame_keys(game: &GameData) -> Vec<KeyCounts> {
         .map(|f| {
             let mut k = KeyCounts::default();
             let any_key = count_events(&f.event_sheet, &controls, &ext_name, &mut k);
-            // Objects placed in the frame or created by its events.
-            let mut objects: HashSet<u16> = f.instances.iter().map(|i| i.object_info).collect();
-            for a in f.event_sheet.groups.iter().flat_map(|g| &g.actions) {
-                for p in &a.params {
-                    if let Param::Create { object_info, .. } | Param::Shoot { object_info, .. } = p.value {
-                        objects.insert(object_info);
-                    }
-                }
-            }
-            for oi in objects {
+            for oi in frame_objects(f) {
                 count_movements(game, oi, &controls, &mut k);
             }
             if any_key && k.0.is_empty() {
@@ -198,10 +210,115 @@ pub fn frame_keys(game: &GameData) -> Vec<KeyCounts> {
         .collect()
 }
 
-/// Mouse click and "mouse over object" conditions in all frames.
-pub fn mouse_conditions(game: &GameData) -> u32 {
-    let all = game.frames.iter().flat_map(|f| f.event_sheet.groups.iter().flat_map(|g| &g.conditions));
-    all.filter(|c| c.object_type == -6 && matches!(c.num, -7..=-4)).count() as u32
+/// Objects placed in a frame or created / shot by its events.
+fn frame_objects(f: &crate::ctf_loader::Frame) -> HashSet<u16> {
+    let mut objects: HashSet<u16> = f.instances.iter().map(|i| i.object_info).collect();
+    for a in f.event_sheet.groups.iter().flat_map(|g| &g.actions) {
+        for p in &a.params {
+            if let Param::Create { object_info, .. } | Param::Shoot { object_info, .. } = p.value {
+                objects.insert(object_info);
+            }
+        }
+    }
+    objects
+}
+
+/// How much each frame is played with the pointer (tapping, on a phone): clicks and
+/// "mouse over" tests, reading the pointer's position (panning offices, aiming), objects
+/// that follow the mouse, and buttons / lists / edit boxes to click.
+pub fn frame_pointer_use(game: &GameData) -> Vec<u32> {
+    game.frames
+        .iter()
+        .map(|f| {
+            let mut n = 0u32;
+            for g in &f.event_sheet.groups {
+                for c in &g.conditions {
+                    if c.object_type == -6 && matches!(c.num, -7..=-4) {
+                        n += 1;
+                    }
+                }
+                for a in g.conditions.iter().chain(&g.actions) {
+                    for p in &a.params {
+                        if let Param::Expression { tokens, .. } = &p.value {
+                            n += tokens.iter().filter(|t| t.object_type == -6 && matches!(t.num, 0 | 1)).count() as u32;
+                        }
+                    }
+                }
+            }
+            for oi in frame_objects(f) {
+                let Some(o) = game.object(oi) else { continue };
+                if let ObjectProperties::Common(c) = &o.props {
+                    if c.movements.iter().any(|m| matches!(m.kind, MovementKind::Mouse { .. })) {
+                        n += 3;
+                    }
+                }
+                if let crate::ctf_loader::ObjectKind::Extension(t) = o.kind {
+                    let name = game.extensions.iter().find(|e| e.handle as i32 == t as i32 - 32).map(|e| e.name.to_ascii_lowercase());
+                    if name.is_some_and(|n| crate::runtime::widgets::WidgetKind::from_ext_name(&n).is_some()) {
+                        n += 2;
+                    }
+                }
+            }
+            n
+        })
+        .collect()
+}
+
+/// Frames where player 1 steers an object with a movement (eight directions, race car,
+/// platform): played with the controls whatever else they do.
+pub fn frame_player_movement(game: &GameData) -> Vec<bool> {
+    game.frames
+        .iter()
+        .map(|f| {
+            frame_objects(f).into_iter().any(|oi| match game.object(oi).map(|o| &o.props) {
+                Some(ObjectProperties::Common(c)) => c.movements.iter().any(|m| {
+                    m.player <= 1 && matches!(m.kind, MovementKind::EightDirections { .. } | MovementKind::Race { .. } | MovementKind::Platform { .. })
+                }),
+                _ => false,
+            })
+        })
+        .collect()
+}
+
+/// Per frame: played with the controls (true) or point-and-click (false).
+///
+/// - A frame where the player steers an object with a movement uses the controls; so does
+///   one holding two or more direction keys (walking written as events), unless clicks
+///   outweigh its keys more than four to one.
+/// - Otherwise its key tests are weighed against its pointer use. What a game does on
+///   (nearly) every frame says nothing about one frame: keys tested on most frames (a
+///   global shortcut) aren't counted, and the pointer use most frames share (a cursor
+///   object, a global click) is subtracted.
+pub fn frame_modes(per_frame: &[KeyCounts], pointer: &[u32], movement: &[bool], held_dirs: &[usize], has_control: &dyn Fn(u16) -> bool) -> Vec<bool> {
+    let n = per_frame.len().max(1);
+    let mut frames_using: HashMap<u16, usize> = HashMap::new();
+    for k in per_frame {
+        for (&vk, &c) in &k.0 {
+            if c > 0 {
+                *frames_using.entry(vk).or_default() += 1;
+            }
+        }
+    }
+    let global = |vk: u16| n >= 4 && frames_using.get(&vk).copied().unwrap_or(0) * 10 >= n * 6;
+    // The pointer use shared by at least half the frames (when it isn't zero).
+    let mut counts: HashMap<u32, usize> = HashMap::new();
+    for &p in pointer {
+        *counts.entry(p).or_default() += 1;
+    }
+    let baseline = counts.iter().filter(|(&p, &c)| p > 0 && c * 2 >= n && n >= 4).map(|(&p, _)| p).max().unwrap_or(0);
+    per_frame
+        .iter()
+        .enumerate()
+        .map(|(i, k)| {
+            let keys: u32 = k.0.iter().filter(|(&vk, _)| has_control(vk) && !global(vk)).map(|(_, &c)| c).sum();
+            let ptr = pointer.get(i).copied().unwrap_or(0).saturating_sub(baseline);
+            // Held direction keys count unless the frame is overwhelmingly clicked (a
+            // blueprint screen that also scrolls with the keys).
+            let walking = held_dirs.get(i).copied().unwrap_or(0) >= 2 && ptr <= keys * 4;
+            let realtime = movement.get(i).copied().unwrap_or(false) || walking;
+            keys > 0 && (realtime || keys > ptr)
+        })
+        .collect()
 }
 
 /// Keys that never get a button: mouse buttons, Escape (Android's Back), function keys
@@ -405,11 +522,9 @@ pub struct TouchControls {
     /// Desktop testing: the mouse acts as a finger.
     mouse_finger: bool,
     controls: ControlSet,
-    /// Per frame: does it use keys?
+    /// Per frame: played with the controls (true) or point-and-click (false).
     frame_uses_keys: Vec<bool>,
     mode: TouchMode,
-    /// More mouse conditions than key tests: "auto" starts hidden.
-    mouse_first: bool,
     fingers: HashMap<u64, Finger>,
     held: HashSet<u16>,
     pointer: Option<Vec2>,
@@ -430,37 +545,36 @@ impl TouchControls {
             all.merge(k);
         }
         let dirs = game.header.controls[0].keys;
-        if env == "debug" {
-            for (i, k) in per_frame.iter().enumerate() {
-                let mut v: Vec<_> = k.0.iter().map(|(k, n)| (key_label(*k), *n)).collect();
-                v.sort();
-                eprintln!("frame {i}: {v:?}");
-            }
-        }
+        let pointer = frame_pointer_use(game);
         let mut controls = ControlSet::choose(&all, [dirs[0], dirs[1], dirs[2], dirs[3]]);
         if controls.is_empty() && s.touch_controls == TouchMode::On {
             controls = ControlSet { dpad: Some(ARROWS), buttons: vec![ENTER, 0x20] };
         }
         let active = on && !controls.is_empty();
-        // Games played mostly with the mouse (with a few keyboard shortcuts) start with the
-        // controls hidden; the toggle shows them.
         let in_set = |vk: &u16| controls.buttons.contains(vk) || controls.dpad.is_some_and(|d| d.contains(vk));
-        let key_refs: u32 = all.0.iter().filter(|(k, _)| in_set(k)).map(|(_, n)| n).sum();
-        let mouse_first = mouse_conditions(game) > key_refs;
+        // Per frame: key tests (of keys that have a control) against pointer use.
+        let key_refs: Vec<u32> = per_frame.iter().map(|k| k.0.iter().filter(|(vk, _)| in_set(vk)).map(|(_, n)| n).sum()).collect();
+        let movement = frame_player_movement(game);
+        let dpad_keys: Vec<u16> = controls.dpad.map(|d| d.to_vec()).unwrap_or_default();
+        let held = frame_held_directions(game, &dpad_keys);
+        let frame_uses_keys = frame_modes(&per_frame, &pointer, &movement, &held, &|vk| in_set(&vk));
+        if env == "debug" {
+            for (i, k) in per_frame.iter().enumerate() {
+                let mut v: Vec<_> = k.0.iter().map(|(k, n)| (key_label(*k), *n)).collect();
+                v.sort();
+                let mode = if frame_uses_keys[i] { "controls" } else { "point and click" };
+                let steer = if movement[i] { ", steered movement".to_string() } else if held[i] > 0 { format!(", {} held directions", held[i]) } else { String::new() };
+                eprintln!("frame {i} \"{}\": {mode} (keys {}, pointer {}{steer}) {v:?}", game.frames[i].name, key_refs[i], pointer[i]);
+            }
+        }
         if on && !cfg!(target_os = "android") {
             let names: Vec<String> = controls.buttons.iter().map(|&k| key_label(k)).collect();
-            let shown = if mouse_first { " (hidden at first: mouse game)" } else { "" };
-            eprintln!("Touch controls: d-pad {:?}, buttons {names:?}{shown}", controls.dpad.map(|d| d.map(key_label)));
+            eprintln!("Touch controls: d-pad {:?}, buttons {names:?}", controls.dpad.map(|d| d.map(key_label)));
         }
         let own_mouse = active && cfg!(target_os = "android");
         if own_mouse {
             simulate_mouse_with_touch(false);
         }
-        // Frames whose keys all lack controls (Escape, cheats) show none.
-        let frame_uses_keys = per_frame
-            .iter()
-            .map(|k| k.0.keys().any(in_set))
-            .collect();
         Self {
             active,
             own_mouse,
@@ -469,7 +583,6 @@ impl TouchControls {
             controls,
             frame_uses_keys,
             mode: s.touch_controls,
-            mouse_first,
             fingers: HashMap::new(),
             held: HashSet::new(),
             pointer: None,
@@ -484,7 +597,7 @@ impl TouchControls {
             && match self.mode {
                 TouchMode::Off => false,
                 TouchMode::On => true,
-                TouchMode::Auto => !self.mouse_first && self.frame_uses_keys.get(self.frame).copied().unwrap_or(true),
+                TouchMode::Auto => self.frame_uses_keys.get(self.frame).copied().unwrap_or(true),
             }
     }
 
@@ -860,6 +973,32 @@ mod tests {
     }
 
     #[test]
+    fn frames_are_controls_or_point_and_click() {
+        let kc = |pairs: &[(u16, u32)]| KeyCounts(pairs.iter().copied().collect());
+        let minus = 0xBD;
+        // A global shortcut ("-" on every frame) and a cursor object (pointer 3 everywhere)
+        // don't decide anything; a minigame using Space does; a menu full of clicks with a
+        // couple of keys is point-and-click; steering a movement always wants the controls.
+        let frames = vec![
+            kc(&[(minus, 4)]),                   // cutscene
+            kc(&[(minus, 1), (0x20, 2)]),        // Space minigame
+            kc(&[(minus, 4), (ENTER, 2)]),       // clickable menu
+            kc(&[(minus, 4), (0x25, 4), (0x27, 4)]), // walking, with a busy UI
+            kc(&[(minus, 1)]),
+        ];
+        let pointer = vec![3, 3, 9, 40, 3];
+        let movement = vec![false, false, false, true, false];
+        let modes = frame_modes(&frames, &pointer, &movement, &[0, 0, 0, 0, 0], &|_| true);
+        assert_eq!(modes, vec![false, true, false, true, false]);
+        // Walking written as events (held arrows) also wants the controls.
+        let held = frame_modes(&frames, &[3, 3, 3, 20, 3], &[false; 5], &[0, 0, 0, 2, 0], &|_| true);
+        assert!(held[3]);
+        // ...unless the frame is overwhelmingly clicked (keys only scroll a click screen).
+        let clicky = frame_modes(&frames, &[3, 3, 3, 90, 3], &[false; 5], &[0, 0, 0, 2, 0], &|_| true);
+        assert!(!clicky[3]);
+    }
+
+    #[test]
     fn dpad_sectors() {
         assert_eq!(dpad_dirs(vec2(0.0, -50.0), 100.0), [true, false, false, false]);
         assert_eq!(dpad_dirs(vec2(50.0, 50.0), 100.0), [false, true, false, true]);
@@ -877,7 +1016,6 @@ mod tests {
             controls: ControlSet { dpad: Some(ARROWS), buttons: vec![0x5A, 0x58] },
             frame_uses_keys: vec![true, false],
             mode: TouchMode::Auto,
-            mouse_first: false,
             fingers: HashMap::new(),
             held: HashSet::new(),
             pointer: None,
