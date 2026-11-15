@@ -408,8 +408,9 @@ def write_java(src_dir, out_dir):
     back = "        super.onBackPressed();"
     if back not in activity:
         die("miniquad's MainActivity.java changed: onBackPressed not found")
-    activity = activity.replace(back, "        QuadNative.surfaceOnKeyDown(KeyEvent.KEYCODE_BACK);
-        QuadNative.surfaceOnKeyUp(KeyEvent.KEYCODE_BACK);")
+    activity = activity.replace(
+        back, "        QuadNative.surfaceOnKeyDown(KeyEvent.KEYCODE_BACK);\n        QuadNative.surfaceOnKeyUp(KeyEvent.KEYCODE_BACK);"
+    )
     files = [
         (out_dir / Path(*PACKAGE.split(".")) / "MainActivity.java", activity),
         (out_dir / "quad_native" / "QuadNative.java", (src_dir / "QuadNative.java").read_text(encoding="utf-8")),
