@@ -7,6 +7,7 @@ pub mod scene;
 pub mod gamepad;
 pub mod settings;
 pub mod text;
+pub mod touch;
 
 use crate::ctf_loader::properties::{Fill, ShapeKind};
 use crate::ctf_loader::GameData;
@@ -794,6 +795,8 @@ struct Viewer {
     failed_ticks: u32,
     /// Controller mapped to keyboard + mouse.
     pad: gamepad::Gamepad,
+    /// On-screen controls for touch screens.
+    touch: touch::TouchControls,
 }
 
 /// Consecutive failing ticks before the game is paused.
@@ -935,10 +938,18 @@ impl Viewer {
             }
         }
         self.input.down = get_keys_down().into_iter().filter_map(vk_code).collect();
+        let touch = self.touch.update(self.rt.frame_index);
+        if let Some(mode) = touch.mode_changed {
+            self.settings.touch_controls = mode;
+            self.settings.save();
+        }
         for (i, b) in [MouseButton::Left, MouseButton::Middle, MouseButton::Right]
             .into_iter()
             .enumerate()
         {
+            if touch.block_mouse && i == 0 {
+                continue;
+            }
             if is_mouse_button_pressed(b) {
                 self.input.clicked[i] = true;
             }
@@ -946,12 +957,25 @@ impl Viewer {
                 self.input.down.insert([1u16, 4, 2][i]);
             }
         }
+        // Touch controls: held keys like real ones; touches elsewhere are the mouse.
+        self.input.down.extend(&touch.down);
+        self.input.pressed.extend(&touch.pressed);
+        let pointer = match touch.mouse {
+            Some((p, held, clicked)) => {
+                if held {
+                    self.input.down.insert(1);
+                }
+                self.input.clicked[0] |= clicked;
+                p
+            }
+            None => Vec2::from(mouse_position()),
+        };
         let (origin, size) = self.present();
         // Like the original runtime, the pointer's frame position is updated when the
         // pointer moves (with the scroll at that moment), not every tick: an object that
         // follows the mouse and that the camera follows then pans as the mouse moves and
         // stops when it stops.
-        let win = (Vec2::from(mouse_position()) - origin) / (size / self.view_size());
+        let win = (pointer - origin) / (size / self.view_size());
         if self.last_window_mouse != Some(win) || self.shown_frame != self.rt.frame_log.len() {
             let m = win + self.current_scroll();
             self.input.mouse = (m.x as f64, m.y as f64);
@@ -1336,7 +1360,7 @@ impl Viewer {
         if self.running {
             if let Some(h) = self.rt.cursor_image() {
                 if let (Some(sp), Some(e)) = (self.textures.get(&self.rt.game, h), self.rt.game.images.get(h)) {
-                    let m = Vec2::from(mouse_position());
+                    let m = self.touch.pointer().unwrap_or_else(|| Vec2::from(mouse_position()));
                     let hot = vec2(e.hotspot.0 as f32, e.hotspot.1 as f32) * scale;
                     let params = DrawTextureParams {
                         dest_size: Some(vec2(e.width as f32, e.height as f32) * scale),
@@ -1360,6 +1384,7 @@ impl Viewer {
             let (o, size) = self.present();
             self.pad.draw_cursor(o + c * (size / self.view_size()));
         }
+        self.touch.draw(self.hud_font.as_ref());
         self.draw_hud();
         self.textures.end_frame();
     }
@@ -1771,6 +1796,7 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
     // Screenshot / scripted runs are tests: start from no saves, not the player's real ones.
     rt.files.isolated = opts.screenshot.is_some();
     let save_root = rt.files.save_root.clone();
+    let touch = touch::TouchControls::new(&rt.game, &opts.settings);
     let mut v = Viewer {
         last_window_mouse: None,
         shown_frame: rt.frame_log.len(),
@@ -1809,6 +1835,7 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         notice: None,
         failed_ticks: 0,
         pad: gamepad::Gamepad::new(&opts.settings),
+        touch,
     };
     // Replacement packs for this game.
     let mods = std::sync::Arc::new(crate::mods::Mods::load(opts.game_path.as_deref().unwrap_or(&v.rt.game.path)));
