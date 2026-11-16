@@ -82,7 +82,8 @@ const BG: Color = Color::new(0.055, 0.055, 0.067, 1.0);
 const CARD: Color = Color::new(0.095, 0.095, 0.115, 1.0);
 const TEXT: Color = Color::new(0.94, 0.94, 0.96, 1.0);
 const MUTED: Color = Color::new(0.56, 0.57, 0.63, 1.0);
-const ACCENT: Color = Color::new(0.96, 0.52, 0.18, 1.0);
+/// Mint, matching the icon.
+const ACCENT: Color = Color::new(0.24, 0.86, 0.68, 1.0);
 const BUTTON: Color = Color::new(0.16, 0.16, 0.195, 1.0);
 /// Pop-up menus and toasts.
 const MENU: Color = Color::new(0.14, 0.14, 0.17, 1.0);
@@ -527,7 +528,7 @@ impl Launcher {
         };
         view::rrect(r.x, r.y, r.w, r.h, 8.0, color);
         let tw = self.bold_width(label, 16);
-        let fg = if !enabled { MUTED } else if accent { Color::new(0.1, 0.06, 0.02, 1.0) } else { TEXT };
+        let fg = if !enabled { MUTED } else if accent { Color::new(0.06, 0.16, 0.13, 1.0) } else { TEXT };
         self.bold_text(label, r.x + (r.w - tw) / 2.0, r.y + r.h / 2.0 + 6.0, 16, fg);
         self.tap(r)
     }
