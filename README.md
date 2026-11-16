@@ -68,6 +68,13 @@ Extension objects (`.mfx` files) are reimplemented natively in `src/runtime/ext/
 - **Joypad object** (`joystick`): reported as a connected controller with nothing pressed, which keeps such games'
   keyboard controls working; gamepads still work through KlikCore's own controller support.
 - **ControlIME** (Japanese text input mode) is accepted and does nothing.
+- **Text Blitter** (`txtblt`): bitmap-font text, drawn from the font image with word wrap at the object's width.
+- **MOO online object** (`Moo2`): the servers are gone, so it behaves as when the server can't be reached: connecting
+  fails, the error event fires once with a message, and nothing connects, joins or arrives; games play offline.
+- **Multiple Touch** (`MultipleTouch`): the mouse is touch 0 (new touch, touch on an object, touch active / ended,
+  touch position), so touch-controlled PC ports can be clicked. Mobile helpers (`AndroidPlus`) are accepted.
+- **System object** (`kcsyso`): the operating-system version (as a current Windows). **Cursor** (`kccursor`): cursor
+  shapes are accepted (the pointer stays as it is); "use an object's image as the pointer" works.
 
 Games write their files through a sandbox. Writes go to `%APPDATA%\KlikCore\<game>\` (override with `--save-dir`), split into `app\` for paths under the game folder and `appdata\` for AppData paths. Reads check the sandbox first and then the real location, so saves from the original game are picked up but never modified. On Windows that includes the VirtualStore (`%LOCALAPPDATA%\VirtualStore`), where old games' saves to protected places such as `C:\` really end up.
 

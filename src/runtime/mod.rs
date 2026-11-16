@@ -16,6 +16,7 @@ pub mod scenario;
 pub mod script;
 pub mod value;
 pub mod widgets;
+pub mod textblitter;
 
 use crate::ctf_loader::events::Events;
 use crate::ctf_loader::{Frame, GameData, ObjectKind, ObjectProperties};
@@ -187,6 +188,8 @@ pub struct Runtime {
     pub global_strings: Vec<String>,
     pub score: [i32; 4],
     pub lives: [i32; 4],
+    /// The players' control keys (from the header; games can change them).
+    pub controls: [crate::ctf_loader::header::PlayerControls; 4],
     events: Rc<Events>,
     event_state: HashMap<usize, EventState>,
     groups_disabled: HashSet<u16>,
@@ -289,6 +292,7 @@ impl Runtime {
             global_strings: game.global_strings.clone(),
             score: [game.header.initial_score as i32; 4],
             lives: [game.header.initial_lives as i32; 4],
+            controls: game.header.controls.clone(),
             game,
             frame_index: 0,
             instances: Vec::new(),
@@ -521,6 +525,18 @@ impl Runtime {
                 inst.widget = Some(Box::new(w));
             }
         }
+        // Text Blitter: bitmap-font text, drawn natively.
+        if let (ObjectKind::Extension(t), ObjectProperties::Common(c)) = (obj.kind, &obj.props) {
+            let is_blitter = self.game.extensions.iter().any(|e| e.handle as i32 == t as i32 - 32 && e.name.eq_ignore_ascii_case("txtblt"));
+            if is_blitter {
+                if let Some((font, text)) = c.extension_data.as_deref().and_then(textblitter::BlitFont::from_data) {
+                    inst.visual = Visual::Placeholder { w: font.w, h: font.h };
+                    inst.visible = c.visible_at_start();
+                    inst.text = text;
+                    inst.blit = Some(std::sync::Arc::new(font));
+                }
+            }
+        }
         self.next_id += 1;
         // The Perspective extension is drawn natively as a distortion effect.
         if let (ObjectKind::Extension(t), ObjectProperties::Common(c)) = (obj.kind, &obj.props) {
@@ -553,6 +569,7 @@ impl Runtime {
         self.mouse_released = self.mouse_was_down && !down;
         self.mouse_was_down = down;
         {
+            self.ext_shared.tick.set(self.ext_shared.tick.get() + 1);
             let mut keys = self.ext_shared.keys.borrow_mut();
             keys.clear();
             keys.extend(input.down.iter().copied());
@@ -569,7 +586,7 @@ impl Runtime {
             }
             return;
         }
-        let all_controls = self.game.header.controls.clone();
+        let all_controls = self.controls.clone();
         let controls = all_controls[0].clone();
         self.update_platforms(input, &controls);
         let game = &self.game;
@@ -1260,6 +1277,10 @@ impl Runtime {
             let (mut x, mut y) = (inst.x as f32, inst.y as f32);
             let visual = match (&inst.visual, inst.kind) {
                 _ if inst.widget.is_some() => Visual::Widget(inst.widget.clone().expect("checked")),
+                _ if inst.blit.is_some() => {
+                    let f = inst.blit.as_ref().expect("checked");
+                    Visual::Blit { w: f.w, h: f.h, image: f.image, cell_w: f.cell_w, cell_h: f.cell_h, cells: f.layout(&inst.text) }
+                }
                 (Visual::Image { .. }, ObjectKind::Active) if !inst.pasted => {
                     match inst.current_image(obj) {
                         Some(h) => Visual::Image { handle: h },

@@ -12,6 +12,7 @@ mod ini;
 mod joystick;
 mod kcfile;
 mod kcarray;
+mod moo;
 
 use super::files::SaveFs;
 use super::value::Value;
@@ -30,11 +31,13 @@ pub struct Shared {
     gsx: gsx::Store,
     /// Keys held this tick (for extensions that test the keyboard).
     pub keys: ctrlx::Keys,
+    /// Ticks run so far (for extensions with events that fire on a later tick).
+    pub tick: std::rc::Rc<std::cell::Cell<u64>>,
 }
 
 impl Default for Shared {
     fn default() -> Self {
-        Self { gsx: gsx::new_store(), keys: Default::default() }
+        Self { gsx: gsx::new_store(), keys: Default::default(), tick: Default::default() }
     }
 }
 
@@ -71,6 +74,7 @@ pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dy
         // (Its "use an object's image" action is handled by the runtime.)
         "kccursor" => Some(Box::new(inert::Inert)),
         "kcsyso" => Some(Box::new(SystemInfo)),
+        "moo2" => Some(Box::new(moo::Moo::new(shared.tick.clone()))),
         "kcwctrl" | "drpc" | "hiddenproperties" | "android" | "inappandroid" | "xna" | "androidplus" | "multipletouch" => {
             Some(Box::new(inert::Inert))
         }

@@ -99,6 +99,8 @@ pub struct Instance {
     pub fixed: bool,
     /// Windows-control extensions (edit box, list, button, combo box).
     pub widget: Option<Box<super::widgets::Widget>>,
+    /// Text Blitter objects: their bitmap font (the text is `text`).
+    pub blit: Option<std::sync::Arc<super::textblitter::BlitFont>>,
 }
 
 impl Instance {
@@ -181,6 +183,7 @@ impl Instance {
             paragraph: 0,
             fixed: false,
             widget: None,
+            blit: None,
         };
         match &obj.props {
             ObjectProperties::Backdrop(b) => {
@@ -584,6 +587,7 @@ pub fn bounds(g: &GameData, inst: &Instance, obj: &ObjectInfo) -> (f64, f64, f64
         Visual::Shape { w, h, .. }
         | Visual::Placeholder { w, h }
         | Visual::Text { w, h, .. }
+        | Visual::Blit { w, h, .. }
         | Visual::Effect { w, h, .. } => (inst.x, inst.y, *w as f64, *h as f64),
         Visual::Glyphs { .. } => (inst.x, inst.y, 1.0, 1.0),
     }

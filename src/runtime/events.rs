@@ -782,7 +782,7 @@ impl Runtime {
             (PLAYER, -4) | (PLAYER, -6) => {
                 // Joystick-direction mask (up, down, left, right, fire1, fire2, ...) on player 1's keys.
                 let mask = self.param_i(c, 0, sel, None) as u32;
-                let keys = self.game.header.controls[0].keys;
+                let keys = self.controls[0].keys;
                 let set = if c.num == -4 {
                     &input.pressed
                 } else {
@@ -1295,6 +1295,13 @@ impl Runtime {
                 };
             }
             (PLAYER, 2) | (PLAYER, 3) => {}
+            // Set one of the player's control keys (0-3 up, down, left, right, 4-7 fire).
+            (PLAYER, 9) => {
+                let k = self.eval_param(a, 0, sel, None).as_i32();
+                if let (Some(Param::Key(vk)), 0..=7) = (a.params.get(1).map(|p| &p.value), k) {
+                    self.controls[player_index(a.object_info)].keys[k as usize] = *vk;
+                }
+            }
             (t, n) => self.note_unimplemented(format!("act {}/{}", self.ace_owner_label(t), n), ()),
         }
     }
@@ -1478,6 +1485,11 @@ impl Runtime {
             }
         }
         if let ObjectKind::Extension(_) = kind {
+            // Text Blitter: set the text.
+            if a.num == 80 && self.instances[idx].blit.is_some() {
+                self.instances[idx].text = self.eval_param(a, 0, sel, cur).as_string();
+                return;
+            }
             if (a.num == 104 || a.num == 108) && self.instances[idx].widget.as_ref().is_some_and(|w| w.kind == super::widgets::WidgetKind::Edit) {
                 if a.num == 104 {
                     if let Some(Param::Position(p)) = a.params.first().map(|p| &p.value) {

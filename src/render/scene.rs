@@ -22,6 +22,16 @@ pub enum Visual {
         /// Bold / italic set by the game (None = the font's own).
         style: [Option<bool>; 2],
     },
+    /// Bitmap-font text (Text Blitter): cells copied from `image`, each [image x, image y,
+    /// x, y] with the cell size, inside a `w` x `h` box at the item position.
+    Blit {
+        w: f32,
+        h: f32,
+        image: u32,
+        cell_w: f32,
+        cell_h: f32,
+        cells: Vec<[f32; 4]>,
+    },
     /// A row of images (counter digits, lives icons) whose bottom-right corner is the item position.
     Glyphs { handles: Vec<u32> },
     /// A screen-space distortion of everything drawn before it (the Perspective object).

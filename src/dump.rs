@@ -194,7 +194,8 @@ pub fn print_info(g: &GameData, verbose: bool) {
             // KLIKCORE_EXT_DATA=1: an extension object's stored settings, in hex.
             let paras = match &o.props {
                 klikcore::ctf_loader::properties::ObjectProperties::Common(c) if std::env::var_os("KLIKCORE_EXT_DATA").is_some() => {
-                    let hex: Vec<String> = c.extension_data.iter().flatten().take(64).map(|b| format!("{b:02x}")).collect();
+                    let n = std::env::var("KLIKCORE_EXT_DATA").ok().and_then(|v| v.parse::<usize>().ok()).filter(|&n| n > 1).unwrap_or(64);
+                    let hex: Vec<String> = c.extension_data.iter().flatten().take(n).map(|b| format!("{b:02x}")).collect();
                     if hex.is_empty() { paras } else { format!("{paras}  data {}", hex.join(" ")) }
                 }
                 _ => paras,

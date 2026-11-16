@@ -1431,6 +1431,7 @@ impl Viewer {
             Visual::Shape { w, h, .. }
             | Visual::Placeholder { w, h }
             | Visual::Text { w, h, .. }
+            | Visual::Blit { w, h, .. }
             | Visual::Effect { w, h, .. } => Rect::new(item.x, item.y, *w, *h),
             Visual::Glyphs { handles } => {
                 let (mut tw, mut th) = (0.0f32, 0.0f32);
@@ -1567,6 +1568,17 @@ impl Viewer {
                     size.x,
                     size.y,
                 );
+            }
+            Visual::Blit { image, cell_w, cell_h, cells, .. } => {
+                let Some(sp) = self.textures.get(&self.rt.game, *image) else {
+                    return;
+                };
+                let tint = Color::new(1.0, 1.0, 1.0, item.tint[3] as f32 / 255.0);
+                let size = vec2(*cell_w, *cell_h) * xf.scale;
+                for [sx, sy, dx, dy] in cells {
+                    let params = DrawTextureParams { dest_size: Some(size), source: Some(sp.sub(*sx, *sy, *cell_w, *cell_h)), ..Default::default() };
+                    draw_texture_ex(&sp.tex, p.x + dx * xf.scale, p.y + dy * xf.scale, tint, params);
+                }
             }
             Visual::Glyphs { handles } => {
                 // Laid out right-to-left from the bottom-right corner.
