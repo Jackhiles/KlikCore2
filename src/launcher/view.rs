@@ -636,8 +636,8 @@ impl Launcher {
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
                     let status = tx.clone();
-                    let r = super::upscale::make_pack(&path, style, 0, &move |s| {
-                        let _ = status.send(Msg::Status(s));
+                    let r = super::upscale::make_pack(&path, style, 0, &move |s, f| {
+                        let _ = status.send(Msg::UpscaleProgress(s, f));
                     });
                     let _ = tx.send(Msg::Upscaled(r.unwrap_or_else(|e| format!("AI upscale failed: {e}"))));
                 });
@@ -657,8 +657,8 @@ impl Launcher {
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
                     let status = tx.clone();
-                    let r = super::upscale::repair_pack(&path, &move |s| {
-                        let _ = status.send(Msg::Status(s));
+                    let r = super::upscale::repair_pack(&path, &move |s, f| {
+                        let _ = status.send(Msg::UpscaleProgress(s, f));
                     });
                     let _ = tx.send(Msg::Upscaled(r.unwrap_or_else(|e| format!("AI upscale repair failed: {e}"))));
                 });
@@ -728,6 +728,32 @@ impl Launcher {
             (None, Some((s, until))) if get_time() < *until => Some(s.clone()),
             _ => None,
         };
+        // The AI upscale job: a card with its step, a progress bar, percent and time left.
+        if let (Some(s), Some((f, started))) = (&self.busy, self.upscale_progress) {
+            let w = (sw - 40.0).min(460.0);
+            let r = Rect::new(20.0, sh - 20.0 - 74.0, w, 74.0);
+            rrect(r.x, r.y, r.w, r.h, 14.0, MENU);
+            let title = self.fit(&self.upscale_title(), 15, w - 120.0);
+            self.bold_text(&title, r.x + 16.0, r.y + 24.0, 15, TEXT);
+            let pct = format!("{:.0}%", f * 100.0);
+            self.bold_text(&pct, r.x + w - 16.0 - self.bold_width(&pct, 15), r.y + 24.0, 15, ACCENT);
+            let (bx, by, bw) = (r.x + 16.0, r.y + 36.0, w - 32.0);
+            rrect(bx, by, bw, 8.0, 4.0, BG);
+            if f > 0.0 {
+                rrect(bx, by, (bw * f).max(8.0), 8.0, 4.0, ACCENT);
+            }
+            let elapsed = get_time() - started;
+            let left = if f > 0.03 && elapsed > 20.0 { (elapsed * (1.0 - f as f64) / f as f64) as u64 } else { u64::MAX };
+            let eta = match left {
+                u64::MAX => String::new(),
+                l if l < 90 => " - under 2 min left".into(),
+                l if l < 5400 => format!(" - about {} min left", (l + 30) / 60),
+                l => format!(" - about {:.1} h left", l as f64 / 3600.0),
+            };
+            let line = self.fit(&format!("{s}{eta}"), 13, w - 32.0);
+            self.text(&line, r.x + 16.0, r.y + 63.0, 13, MUTED);
+            return;
+        }
         if let Some(s) = line {
             let s = self.fit(&s, 15, sw - 80.0);
             let w = self.text_width(&s, 15) + 32.0;
@@ -735,5 +761,11 @@ impl Launcher {
             rrect(r.x, r.y, r.w, r.h, 18.0, MENU);
             self.text(&s, r.x + 16.0, r.y + 23.0, 15, TEXT);
         }
+    }
+
+    /// "AI upscale: <game>" for the progress card.
+    fn upscale_title(&self) -> String {
+        let name = self.upscaling.as_ref().and_then(|p| self.entries.iter().find(|e| &e.path == p)).map(|e| e.title.clone()).unwrap_or_default();
+        if name.is_empty() { "AI upscale".into() } else { format!("AI upscale: {name}") }
     }
 }

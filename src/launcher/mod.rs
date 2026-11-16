@@ -238,6 +238,8 @@ enum Msg {
     Found(Entry),
     Status(String),
     Done(String),
+    /// AI upscale progress: the status line and how far through (0-1) when known.
+    UpscaleProgress(String, Option<f32>),
     UpdateAvailable(update::Release),
     /// An AI upscale pack finished (or failed): the message to show.
     Upscaled(String),
@@ -260,6 +262,8 @@ struct Launcher {
     scroll: f32,
     status: Option<(String, f64)>,
     busy: Option<String>,
+    /// The AI upscale job: how far through (0-1) and when it started (for time left).
+    upscale_progress: Option<(f32, f64)>,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
     last_click: Option<(usize, f64)>,
@@ -361,6 +365,7 @@ impl Launcher {
             scroll: 0.0,
             status: None,
             busy: None,
+            upscale_progress: None,
             tx,
             rx,
             last_click: None,
@@ -699,6 +704,13 @@ impl Launcher {
                     }
                 }
                 Msg::Status(s) => self.busy = Some(s),
+                Msg::UpscaleProgress(s, f) => {
+                    self.busy = Some(s);
+                    if let Some(f) = f {
+                        let started = self.upscale_progress.map_or(get_time(), |p| p.1);
+                        self.upscale_progress = Some((f, started));
+                    }
+                }
                 Msg::Done(s) => {
                     self.busy = None;
                     self.say(s);
@@ -706,6 +718,7 @@ impl Launcher {
                 Msg::UpdateAvailable(r) => self.update = Some(r),
                 Msg::Upscaled(s) => {
                     self.upscaling = None;
+                    self.upscale_progress = None;
                     self.busy = None;
                     self.say(s);
                 }

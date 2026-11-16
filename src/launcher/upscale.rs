@@ -23,6 +23,21 @@ const MAX_SIDE: u32 = 8192;
 const MIN_PIXELS: u32 = 64;
 pub const PACK_NAME: &str = "AI upscale";
 
+/// Progress reports: what is happening, and how far through the whole job (0-1) when known.
+pub type Progress<'a> = &'a dyn Fn(String, Option<f32>);
+
+/// Share of the job each step takes, for the progress bar: preparing / checking images,
+/// the AI run, saving, then retries.
+const PREPARE: (f32, f32) = (0.0, 0.08);
+const AI_RUN: (f32, f32) = (0.08, 0.85);
+const SAVE: (f32, f32) = (0.85, 0.93);
+const RETRY: (f32, f32) = (0.93, 1.0);
+
+/// `part` of the way through a step.
+fn at(step: (f32, f32), part: f32) -> Option<f32> {
+    Some(step.0 + (step.1 - step.0) * part.clamp(0.0, 1.0))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Style {
     /// Drawn or painted art, cartoons, pixel-ish art.
@@ -89,7 +104,7 @@ pub fn auto_scale(height: u32) -> u32 {
 }
 
 /// Download and unpack Real-ESRGAN if it isn't there yet.
-fn ensure_tool(progress: &dyn Fn(String)) -> Result<PathBuf, String> {
+fn ensure_tool(progress: Progress) -> Result<PathBuf, String> {
     let exe = tool_exe();
     if exe.is_file() {
         return Ok(exe);
@@ -99,9 +114,9 @@ fn ensure_tool(progress: &dyn Fn(String)) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let zip = dir.join("download.zip");
     let url = format!("https://github.com/xinntao/Real-ESRGAN/releases/download/{TOOL_VERSION}/realesrgan-ncnn-vulkan-{TOOL_BUILD}-{os}.zip");
-    progress("Downloading Real-ESRGAN (about 45 MB, once)...".into());
+    progress("Downloading Real-ESRGAN (about 45 MB, once)...".into(), None);
     super::update::download(&url, &zip)?;
-    progress("Unpacking Real-ESRGAN...".into());
+    progress("Unpacking Real-ESRGAN...".into(), None);
     let bytes = std::fs::read(&zip).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&zip);
     // Only the program, its libraries and the models (not the demo pictures and video).
@@ -352,9 +367,9 @@ fn read_pack_info(game: &GameData, pack: &Path) -> (Style, u32) {
 }
 
 /// Make (or remake) a game's AI upscale pack. `scale` 0 = automatic. Returns a summary.
-pub fn make_pack(game_path: &Path, style: Style, scale: u32, progress: &dyn Fn(String)) -> Result<String, String> {
+pub fn make_pack(game_path: &Path, style: Style, scale: u32, progress: Progress) -> Result<String, String> {
     let exe = ensure_tool(progress)?;
-    progress("Reading the game...".into());
+    progress("Reading the game...".into(), Some(0.0));
     let game = GameData::load(game_path).map_err(|e| format!("could not load the game: {e}"))?;
     let scale = if scale == 0 { auto_scale(game.header.window_height as u32) } else { scale.clamp(2, 4) };
     with_work_dir(|inp, outp| run(&game, &exe, style, scale, inp, outp, game_path, false, progress))
@@ -362,9 +377,9 @@ pub fn make_pack(game_path: &Path, style: Style, scale: u32, progress: &dyn Fn(S
 
 /// Check an existing pack against the game's images and redo only the ones that are
 /// missing or came out wrong (black, wrong colours, detail wiped out). Returns a summary.
-pub fn repair_pack(game_path: &Path, progress: &dyn Fn(String)) -> Result<String, String> {
+pub fn repair_pack(game_path: &Path, progress: Progress) -> Result<String, String> {
     let exe = ensure_tool(progress)?;
-    progress("Reading the game...".into());
+    progress("Reading the game...".into(), Some(0.0));
     let game = GameData::load(game_path).map_err(|e| format!("could not load the game: {e}"))?;
     let pack = pack_dir(game_path);
     if !pack.join("images").is_dir() {
@@ -444,7 +459,7 @@ fn shrunk(path: &Path, orig: &RgbaImage) -> Option<Vec<u8>> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: &Path, game_path: &Path, repair: bool, progress: &dyn Fn(String)) -> Result<String, String> {
+fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: &Path, game_path: &Path, repair: bool, progress: Progress) -> Result<String, String> {
     let pack = pack_dir(game_path);
     let images = pack.join("images");
     if !repair {
@@ -460,7 +475,7 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
     let (mut written, mut kept) = (0, 0);
     for (k, e) in game.images.images.iter().enumerate() {
         if k % 25 == 0 {
-            progress(format!("{} images {}/{total}...", if repair { "Checking" } else { "Preparing" }, k + 1));
+            progress(format!("{} images {}/{total}...", if repair { "Checking" } else { "Preparing" }, k + 1), at(PREPARE, k as f32 / total.max(1) as f32));
         }
         let Ok(img) = e.decode_rgba() else { continue };
         let target = images.join(format!("{}.png", e.handle));
@@ -500,7 +515,7 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
     for batch in sent.chunks(BATCH) {
         stage(inp, &staged, batch)?;
         // A failed run leaves its images missing; they are retried below.
-        if let Err(e) = ai_pass(exe, model, model_scale, &staged, outp, &[], sent.len(), &label, progress) {
+        if let Err(e) = ai_pass(exe, model, model_scale, &staged, outp, &[], sent.len(), &label, AI_RUN, progress) {
             if !outp.read_dir().is_ok_and(|mut d| d.next().is_some()) {
                 return Err(e);
             }
@@ -516,7 +531,9 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
         let mut failed = Vec::new();
         for (k, &h) in todo.iter().enumerate() {
             if k % 10 == 0 {
-                progress(format!("Checking and saving {}/{}...", k + 1, todo.len()));
+                let f = k as f32 / todo.len().max(1) as f32;
+                let frac = if attempt == 0 { at(SAVE, f) } else { at(RETRY, (attempt as f32 - 1.0 + f) / 2.0) };
+                progress(format!("Checking and saving {}/{}...", k + 1, todo.len()), frac);
             }
             match save_one(game, h, scale, outp, &images)? {
                 true => {
@@ -540,7 +557,9 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
             stage(inp, &staged, batch)?;
             let note = format!("{label}, {what}: {}/{}", (b * 25 + batch.len()).min(todo.len()), todo.len());
             // Errors here just leave those images failed.
-            let _ = ai_pass(exe, m, ms, &staged, outp, &["-t", "128", "-j", "1:1:1"], 0, &note, progress);
+            let part = (attempt as f32 + b as f32 / todo.len().div_ceil(25).max(1) as f32) / 2.0;
+            let step = (at(RETRY, part).unwrap_or(RETRY.0), RETRY.1);
+            let _ = ai_pass(exe, m, ms, &staged, outp, &["-t", "128", "-j", "1:1:1"], 0, &note, step, progress);
         }
     }
     let skipped = todo.len();
@@ -569,9 +588,10 @@ fn stage(inp: &Path, staged: &Path, handles: &[u32]) -> Result<(), String> {
     Ok(())
 }
 
-/// One Real-ESRGAN run over a folder. `count` > 0 shows "done/count" progress.
+/// One Real-ESRGAN run over a folder. `count` > 0 shows "done/count" progress through
+/// `step` of the job.
 #[allow(clippy::too_many_arguments)]
-fn ai_pass(exe: &Path, model: &str, model_scale: u32, inp: &Path, outp: &Path, extra: &[&str], count: usize, label: &str, progress: &dyn Fn(String)) -> Result<(), String> {
+fn ai_pass(exe: &Path, model: &str, model_scale: u32, inp: &Path, outp: &Path, extra: &[&str], count: usize, label: &str, step: (f32, f32), progress: Progress) -> Result<(), String> {
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("-i").arg(inp).arg("-o").arg(outp).args(["-n", model, "-s", &model_scale.to_string(), "-f", "png", "-m"]).arg(tool_dir().join("models")).args(extra);
     cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
@@ -597,9 +617,9 @@ fn ai_pass(exe: &Path, model: &str, model_scale: u32, inp: &Path, outp: &Path, e
         }
         if count > 0 {
             let done = std::fs::read_dir(outp).map(|d| d.count()).unwrap_or(0);
-            progress(format!("Upscaling with AI {done}/{count} ({label})..."));
+            progress(format!("Upscaling with AI {done}/{count} ({label})..."), at(step, done as f32 / count as f32));
         } else {
-            progress(format!("Upscaling with AI ({label})..."));
+            progress(format!("Upscaling with AI ({label})..."), Some(step.0));
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     };

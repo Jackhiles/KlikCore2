@@ -282,9 +282,12 @@ fn main() -> Result<()> {
         }
         // Progress repeats while counting: print a line only when it changes.
         let last = std::cell::RefCell::new(String::new());
-        let progress = |s: String| {
+        let progress = |s: String, done: Option<f32>| {
             if *last.borrow() != s {
-                eprintln!("{s}");
+                match done {
+                    Some(f) => eprintln!("[{:3.0}%] {s}", f * 100.0),
+                    None => eprintln!("{s}"),
+                }
                 *last.borrow_mut() = s;
             }
         };
