@@ -710,6 +710,12 @@ fn renumber(e: &mut Events, base: u16) {
                     let i = -19 - c.num;
                     c.num = -27;
                     c.params.insert(0, index_param(i));
+                } else if !counter_like(c.object_type) && matches!(c.num, -25 | -26) {
+                    // Compare value B (-25) / C (-26), the pairs of actions 37-39 / 40-42
+                    // (seen: "while it's above 0, shoot and subtract 1").
+                    let i = if c.num == -25 { 1 } else { 2 };
+                    c.num = -27;
+                    c.params.insert(0, index_param(i));
                 } else {
                     c.num = mmf_number(c.object_type, c.num, true);
                 }
@@ -721,6 +727,11 @@ fn renumber(e: &mut Events, base: u16) {
                 if !counter_like(a.object_type) && (27..=29).contains(&a.num) {
                     a.num += 4;
                     a.params.insert(0, index_param(0));
+                } else if !counter_like(a.object_type) && (37..=42).contains(&a.num) {
+                    // Set / add / subtract value B (37-39) and C (40-42).
+                    let (i, first) = if a.num <= 39 { (1, 37) } else { (2, 40) };
+                    a.num = 31 + (a.num - first);
+                    a.params.insert(0, index_param(i));
                 } else {
                     a.num = mmf_number(a.object_type, a.num, false);
                 }
@@ -755,6 +766,9 @@ fn renumber(e: &mut Events, base: u16) {
                             // Counter-like objects' expressions are numbered from 0 here, 80 in Fusion.
                             if matches!(t.object_type, 3 | 5 | 6 | 7) && (0..20).contains(&t.num) {
                                 t.num += 80;
+                            } else if t.object_type == 2 && t.num == 0 {
+                                // X position (Fusion's 11; 1 = Y is the same).
+                                t.num = 11;
                             }
                             if t.object_type >= 0 && !matches!(t.value, TokenValue::None) || t.object_type >= 2 {
                                 fix(&mut t.object_info);

@@ -1274,6 +1274,16 @@ impl Viewer {
         let (_, present_size) = self.present();
         let view = self.view_size();
         let scene = self.rt.draw_items();
+        // Debug: KLIKCORE_DUMP_SCENE=1 lists what screenshots draw (name, place, image, ink).
+        if self.test_run && std::env::var_os("KLIKCORE_DUMP_SCENE").is_some() {
+            for i in scene.iter().filter(|i| i.visible) {
+                let what = match &i.visual {
+                    Visual::Image { handle } => format!("image {handle}"),
+                    v => format!("{:?}", std::mem::discriminant(v)),
+                };
+                eprintln!("scene: layer {} at {:.0},{:.0} {} ink {} tint {:?} \"{}\"", i.layer, i.x, i.y, what, i.ink_effect, i.tint, i.label);
+            }
+        }
         // Distortion effects need what's behind them as a texture: draw the game view
         // into an off-screen target at native resolution, then scale it to the window.
         let has_effect = scene

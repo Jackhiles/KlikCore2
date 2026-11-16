@@ -317,7 +317,7 @@ Run them with `klikcore --scenario FILE_OR_DIR`, or as part of `cargo test` by s
 Debug environment variables: `KLIKCORE_PROFILE=1` makes `--headless` print the slowest events;
 `KLIKCORE_NO_EFFECTS=1` disables distortion effects for comparison. `KLIKCORE_TRACE=N` prints each condition result of event N every tick.
 `KLIKCORE_HUD=compact|full|inspect` shows the overlay (also in screenshots). `KLIKCORE_WALK_FRAMES=MS` shows every frame for MS milliseconds and exits (a memory benchmark; not logged as play time).
-`KLIKCORE_SETTINGS="filter=hd;window_scale=2"` overrides player settings for one run (also screenshots). With `--dump-info --verbose`, `KLIKCORE_ALL_PARAS=1` lists every paragraph of text objects and `KLIKCORE_EXT_DATA=1` prints each extension object's stored settings in hex and `KLIKCORE_ANIMS=1` lists each object's animations; with `--dump-events`, `KLIKCORE_FULL_PARAMS=1` prints parameters in full.
+`KLIKCORE_SETTINGS="filter=hd;window_scale=2"` overrides player settings for one run (also screenshots). `KLIKCORE_DUMP_SCENE=1` lists what a screenshot draws (object, position, image, ink). With `--dump-info --verbose`, `KLIKCORE_ALL_PARAS=1` lists every paragraph of text objects and `KLIKCORE_EXT_DATA=1` prints each extension object's stored settings in hex and `KLIKCORE_ANIMS=1` lists each object's animations; with `--dump-events`, `KLIKCORE_FULL_PARAMS=1` prints parameters in full.
 `KLIKCORE_TEXTURE_MB=N` changes the texture cache budget (default 192 MB): textures are kept in a least-recently-used
 cache, and whatever the current frame draws is never dropped.
 
