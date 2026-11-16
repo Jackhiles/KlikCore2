@@ -145,7 +145,17 @@ impl Launcher {
                 self.busy = Some(format!("Downloading KlikCore v{}...", r.version));
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
-                    let _ = tx.send(Msg::UpdateInstalled(update::install(&r)));
+                    #[cfg(target_os = "android")]
+                    let result = {
+                        let status = tx.clone();
+                        update::install_android(&r, move |s| {
+                            let _ = status.send(Msg::Status(s));
+                        })
+                        .map(|_| std::path::PathBuf::new())
+                    };
+                    #[cfg(not(target_os = "android"))]
+                    let result = update::install(&r);
+                    let _ = tx.send(Msg::UpdateInstalled(result));
                 });
             }
             right = rect.x - 12.0;

@@ -431,7 +431,7 @@ impl Launcher {
     fn start_update_check(&self) {
         update::cleanup();
         // Android updates come as a new APK, not a replaced program file.
-        if cfg!(target_os = "android") || update::is_dev_build() || std::env::var_os("KLIKCORE_NO_UPDATE_CHECK").is_some() {
+        if update::is_dev_build() || std::env::var_os("KLIKCORE_NO_UPDATE_CHECK").is_some() {
             return;
         }
         let tx = self.tx.clone();
@@ -668,6 +668,14 @@ impl Launcher {
                 Msg::UpdateAvailable(r) => self.update = Some(r),
                 Msg::OfferSteamShortcut => self.steam_offer = true,
                 Msg::SteamLine(l) => self.steam_lines.push(l),
+                // Android: the system's install prompt is up; the app restarts as the new
+                // version once the player confirms.
+                Msg::UpdateInstalled(Ok(exe)) if cfg!(target_os = "android") => {
+                    let _ = exe;
+                    self.updating = false;
+                    self.busy = None;
+                    self.say("Confirm the update in Android's prompt".to_string());
+                }
                 Msg::UpdateInstalled(Ok(exe)) => {
                     // Start the new version and close this one.
                     match std::process::Command::new(&exe).spawn() {

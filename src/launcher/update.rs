@@ -8,6 +8,10 @@
 //!
 //! Downloads use the system's `curl` (built into Windows 10+, macOS and SteamOS), so no
 //! TLS stack is compiled in. Copies running from a `target` build folder never update.
+//!
+//! Android: the check and the download go through Java (`HttpURLConnection`), and the APK
+//! is handed to Android's package installer, which asks the player to confirm; the app
+//! then restarts as the new version.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -41,7 +45,9 @@ pub fn current_version() -> &'static str {
 
 /// Release file for this platform.
 pub fn asset_name() -> Option<&'static str> {
-    if cfg!(all(windows, target_arch = "x86_64")) {
+    if cfg!(all(target_os = "android", target_arch = "aarch64")) {
+        Some("klikcore-android-arm64.apk")
+    } else if cfg!(all(windows, target_arch = "x86_64")) {
         Some("klikcore-windows-x86_64.exe")
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         Some(if is_appimage() { "KlikCore-x86_64.AppImage" } else { "klikcore-linux-x86_64" })
@@ -52,6 +58,9 @@ pub fn asset_name() -> Option<&'static str> {
 
 /// A developer build (run from Cargo's `target` folder) is never replaced.
 pub fn is_dev_build() -> bool {
+    if cfg!(target_os = "android") {
+        return false;
+    }
     program_path()
         .map(|p| p.components().any(|c| c.as_os_str().eq_ignore_ascii_case("target")))
         .unwrap_or(true)
@@ -65,6 +74,18 @@ pub fn newer(a: &str, b: &str) -> bool {
     parts(a) > parts(b)
 }
 
+/// HTTPS GET.
+fn fetch(url: &str, accept: &str) -> Result<Vec<u8>, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = accept;
+        crate::android::http_get(url)
+    }
+    #[cfg(not(target_os = "android"))]
+    curl(&["-H", &format!("Accept: {accept}"), url])
+}
+
+#[cfg_attr(target_os = "android", allow(dead_code))]
 fn curl(args: &[&str]) -> Result<Vec<u8>, String> {
     let out = Command::new("curl")
         .args(["-fsSL", "--max-time", "120", "-H", "User-Agent: KlikCore-updater"])
@@ -81,7 +102,7 @@ fn curl(args: &[&str]) -> Result<Vec<u8>, String> {
 /// The latest release, if it is newer than this build and has a file for this platform.
 pub fn check() -> Result<Option<Release>, String> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let body = curl(&["-H", "Accept: application/vnd.github+json", &url])?;
+    let body = fetch(&url, "application/vnd.github+json")?;
     let json: serde_json::Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
     let tag = json["tag_name"].as_str().unwrap_or_default();
     if tag.is_empty() || !newer(tag, current_version()) {
@@ -109,8 +130,39 @@ fn old_copy(exe: &Path) -> PathBuf {
 
 /// Delete the copy left behind by the last update.
 pub fn cleanup() {
+    if cfg!(target_os = "android") {
+        return;
+    }
     if let Ok(exe) = program_path() {
         let _ = std::fs::remove_file(old_copy(&exe));
+    }
+}
+
+/// Android: download the APK and hand it to the package installer. Returns once Android
+/// is asking the player to confirm (Ok), or with why it failed.
+#[cfg(target_os = "android")]
+pub fn install_android(r: &Release, progress: impl Fn(String)) -> Result<(), String> {
+    crate::android::install_update(&r.url);
+    let mut last = String::new();
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let s = crate::android::update_status();
+        if s != last {
+            if let Some(p) = s.strip_prefix("downloading ") {
+                progress(format!("Downloading KlikCore v{}... {p}%", r.version));
+            }
+            last = s.clone();
+        }
+        match s.split_once(' ').map_or((s.as_str(), ""), |(a, b)| (a, b)) {
+            ("waiting", _) => return Ok(()),
+            ("failed", "key") => {
+                return Err("this copy was signed with a different key; uninstall KlikCore once and install the new version from GitHub (sync your saves to a paired device first)".into())
+            }
+            ("failed", "cancelled") => return Err("cancelled".into()),
+            ("failed", why) => return Err(why.to_string()),
+            ("", _) => return Err("the installer stopped".into()),
+            _ => {}
+        }
     }
 }
 

@@ -129,7 +129,10 @@ game's `klikcore.log`. A game's own "end application" action closes its window.
 
 ### Updates
 Release builds of the launcher check GitHub for a newer release when they start and offer an **Update to vX** button
-(download, swap in, restart). Copies run from a Cargo `target` folder never update themselves; set
+(download, swap in, restart). On Android the button downloads the new APK and Android asks to confirm the install
+(the first time also to allow installs from KlikCore); the app then restarts as the new version. Android releases are
+signed with one permanent key, so updates install over the app with games and saves kept. Copies run from a Cargo
+`target` folder never update themselves; set
 `KLIKCORE_NO_UPDATE_CHECK=1` to turn the check off. Releases are built by GitHub Actions when a `v*` tag is pushed
 (see `.github/workflows/release.yml`).
 
@@ -137,7 +140,7 @@ Release builds of the launcher check GitHub for a newer release when they start 
 Download `KlikCore-x86_64.AppImage` (with icon and app-menu entry; on the Steam Deck, Gear Lever adds it to the menu
 in one click) or the plain `klikcore-linux-x86_64` from the releases page, make it executable (`chmod +x ...`) and
 run it; on the Deck, do that in desktop mode and add it to Steam as a non-Steam game to use it in game mode. Steam
-Input's keyboard-and-mouse templates map the Deck's controls for the games. Add games with "Add folder..." (uses the
+Input's gamepad template works with KlikCore's controller support (see Controllers). Add games with "Add folder..." (uses the
 desktop's own picker, kdialog or zenity) or `klikcore-linux-x86_64 --add ~/Games`.
 
 ### Android
@@ -168,7 +171,7 @@ pointer position, mouse-following objects, buttons and lists), ignoring keys and
 `KLIKCORE_TOUCH_CONTROLS=debug` prints each frame's verdict. The small button at the top right hides
 or shows them (remembered per game, `touch_controls=auto|on|off` in the game's settings file). On a PC,
 `KLIKCORE_TOUCH_CONTROLS=1` shows them too (the mouse acts as a finger). Sound uses Android's audio (Oboe). Not available on Android: controllers, file dialogs, desktop
-shortcuts, Steam, the self-updater, and games that start Windows programs.
+shortcuts, Steam, and games that start Windows programs.
 
 ### Controllers
 Games that only support keyboard and mouse can be played with a gamepad (Xbox / PlayStation controllers, Steam Deck).

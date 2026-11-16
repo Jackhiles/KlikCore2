@@ -302,6 +302,9 @@ SHORTCUTS = """    String launchGame = null;
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (takeUpdateStatus(intent)) {
+            return;
+        }
         setIntent(intent);
         takeGameFrom(intent);
     }
@@ -367,6 +370,129 @@ SHORTCUTS = """    String launchGame = null;
 """
 
 
+# Self-update: Rust finds a newer release (httpGet: Android has no curl, and Rust has no
+# TLS here); installUpdate downloads the APK into a PackageInstaller session, and Android
+# asks the player to confirm. The result comes back to the activity as an intent.
+UPDATER = """    static final String UPDATE_ACTION = "com.takobyte.klikcore.UPDATE_STATUS";
+    volatile String updateState = "";
+
+    // GET over HTTPS; "" on any failure.
+    public String httpGet(String url) {
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setRequestProperty("User-Agent", "KlikCore-updater");
+            c.setRequestProperty("Accept", "application/vnd.github+json");
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(30000);
+            if (c.getResponseCode() != 200) {
+                return "";
+            }
+            java.io.InputStream in = c.getInputStream();
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+            }
+            in.close();
+            return out.toString("UTF-8");
+        } catch (Exception e) {
+            Log.w("KlikCore", "httpGet: " + e);
+            return "";
+        }
+    }
+
+    // "", "downloading <percent>", "waiting" (Android is asking the player) or "failed <why>".
+    public String updateStatus() {
+        return updateState;
+    }
+
+    public void installUpdate(final String url) {
+        updateState = "downloading 0";
+        new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                        c.setRequestProperty("User-Agent", "KlikCore-updater");
+                        c.setConnectTimeout(15000);
+                        c.setReadTimeout(60000);
+                        if (c.getResponseCode() != 200) {
+                            updateState = "failed the download answered " + c.getResponseCode();
+                            return;
+                        }
+                        long total = c.getContentLengthLong();
+                        android.content.pm.PackageInstaller pi = getPackageManager().getPackageInstaller();
+                        android.content.pm.PackageInstaller.SessionParams params =
+                            new android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+                        if (total > 0) {
+                            params.setSize(total);
+                        }
+                        int id = pi.createSession(params);
+                        android.content.pm.PackageInstaller.Session s = pi.openSession(id);
+                        java.io.InputStream in = c.getInputStream();
+                        java.io.OutputStream o = s.openWrite("klikcore.apk", 0, total > 0 ? total : -1);
+                        byte[] buf = new byte[65536];
+                        long done = 0;
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            o.write(buf, 0, n);
+                            done += n;
+                            if (total > 0) {
+                                updateState = "downloading " + (done * 100 / total);
+                            }
+                        }
+                        in.close();
+                        s.fsync(o);
+                        o.close();
+                        Intent i = new Intent(MainActivity.this, MainActivity.class);
+                        i.setAction(UPDATE_ACTION);
+                        int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                            | (Build.VERSION.SDK_INT >= 31 ? android.app.PendingIntent.FLAG_MUTABLE : 0);
+                        android.app.PendingIntent pending = android.app.PendingIntent.getActivity(MainActivity.this, id, i, flags);
+                        updateState = "waiting";
+                        s.commit(pending.getIntentSender());
+                        s.close();
+                    } catch (Exception e) {
+                        Log.w("KlikCore", "installUpdate: " + e);
+                        updateState = "failed " + e.getMessage();
+                    }
+                }
+            }).start();
+    }
+
+    // The installer's answer: show its confirmation, or note why it failed.
+    boolean takeUpdateStatus(Intent intent) {
+        if (intent == null || !UPDATE_ACTION.equals(intent.getAction())) {
+            return false;
+        }
+        int status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999);
+        if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+            if (confirm != null) {
+                try {
+                    startActivity(confirm);
+                } catch (Exception e) {
+                    updateState = "failed " + e.getMessage();
+                }
+            }
+        } else if (status == android.content.pm.PackageInstaller.STATUS_SUCCESS) {
+            updateState = "";
+        } else if (status == android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT
+                || status == android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE) {
+            updateState = "failed key";
+        } else if (status == android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED) {
+            updateState = "failed cancelled";
+        } else {
+            String m = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE);
+            updateState = "failed " + (m == null ? ("status " + status) : m);
+        }
+        return true;
+    }
+
+"""
+
+
 def write_java(src_dir, out_dir):
     """miniquad's activity with our package and library name; `//%` plugin hooks removed."""
     if out_dir.exists():
@@ -402,7 +528,7 @@ def write_java(src_dir, out_dir):
         "    protected void onResume() {\n        super.onResume();",
         "    protected void onResume() {\n        super.onResume();\n        hideSystemBars();",
     )
-    activity = activity.replace(anchors[1], IMMERSIVE + SHORTCUTS + anchors[1])
+    activity = activity.replace(anchors[1], IMMERSIVE + SHORTCUTS + UPDATER + anchors[1])
     # Back always goes to KlikCore (as the key it is), never to Android's default (which
     # put the app in the background mid-game when the view didn't have focus). The
     # launcher leaves the app itself (goHome) when Back is pressed on the library.

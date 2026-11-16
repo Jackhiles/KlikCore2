@@ -88,6 +88,58 @@ pub(crate) fn pin_shortcut(id: &str, label: &str, icon: Option<&Path>, game: &Pa
     }
 }
 
+/// A Java string from Rust.
+unsafe fn jstring(env: *mut macroquad::miniquad::native::android::ndk_sys::JNIEnv, s: &str) -> *mut std::ffi::c_void {
+    let c = std::ffi::CString::new(s.replace('\0', "")).unwrap_or_default();
+    (**env).NewStringUTF.unwrap()(env, c.as_ptr()) as _
+}
+
+/// Call a `String f(...)` method of the activity and take its text (freeing the local
+/// references, as these run in loops on background threads).
+unsafe fn string_call(env: *mut macroquad::miniquad::native::android::ndk_sys::JNIEnv, s: *mut std::ffi::c_void) -> String {
+    if s.is_null() {
+        return String::new();
+    }
+    let text = get_utf_str!(env, s).to_string();
+    (**env).DeleteLocalRef.unwrap()(env, s as _);
+    text
+}
+
+/// HTTPS GET through Java (there is no curl or TLS stack in the app).
+pub(crate) fn http_get(url: &str) -> Result<Vec<u8>, String> {
+    unsafe {
+        let env = attach_jni_env();
+        let u = jstring(env, url);
+        let s = call_object_method!(env, ACTIVITY, "httpGet", "(Ljava/lang/String;)Ljava/lang/String;", u);
+        (**env).DeleteLocalRef.unwrap()(env, u as _);
+        let body = string_call(env, s);
+        if body.is_empty() {
+            Err("no answer from GitHub".into())
+        } else {
+            Ok(body.into_bytes())
+        }
+    }
+}
+
+/// Start downloading and installing the APK at `url` (see [`update_status`]).
+pub(crate) fn install_update(url: &str) {
+    unsafe {
+        let env = attach_jni_env();
+        let u = jstring(env, url);
+        call_void_method!(env, ACTIVITY, "installUpdate", "(Ljava/lang/String;)V", u);
+        (**env).DeleteLocalRef.unwrap()(env, u as _);
+    }
+}
+
+/// The update's progress: "", "downloading <percent>", "waiting" or "failed <why>".
+pub(crate) fn update_status() -> String {
+    unsafe {
+        let env = attach_jni_env();
+        let s = call_object_method!(env, ACTIVITY, "updateStatus", "()Ljava/lang/String;");
+        string_call(env, s)
+    }
+}
+
 /// Run a game inside the launcher's window until it ends (then any game it asked to start,
 /// as launchers do). Returns an error message when a game can't be loaded.
 pub(crate) async fn play(path: &Path) -> Result<(), String> {
