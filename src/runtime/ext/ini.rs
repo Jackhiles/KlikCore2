@@ -77,7 +77,8 @@ impl Ini {
             }
         }
         if let Err(e) = fs.write(p, text.as_bytes()) {
-            eprintln!("ini: cannot write {p}: {e}");
+            // The sandboxed copy (the game's own path is never written).
+            eprintln!("ini: cannot write {} (for {p}): {e}", fs.sandboxed(p).display());
         }
     }
 

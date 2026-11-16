@@ -1621,6 +1621,10 @@ impl Runtime {
                 self.instances[idx].anim.dir = d;
             }
             (_, 24) => self.instances[idx].destroyed = true,
+            // Only one game uses 25: on a shot leaving the play area (with the playfield
+            // condition, -10), where removing it is what the event is for. Inferred, so
+            // treated like destroy.
+            (_, 25) => self.instances[idx].destroyed = true,
             (_, 26) => self.instances[idx].visible = false,
             (_, 27) => self.instances[idx].visible = true,
             (_, 28) => {}

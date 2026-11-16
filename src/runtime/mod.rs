@@ -419,6 +419,10 @@ impl Runtime {
 
     /// Does object `oi` create widget instances (edit box, list, button, combo)?
     pub(crate) fn oi_has_widget(&self, oi: u16) -> bool {
+        // A qualifier (object group, bit 15): any member that is a widget ("all edit boxes").
+        if oi & 0x8000 != 0 {
+            return self.qualifiers.get(&(oi & 0x7FFF)).is_some_and(|m| m.iter().any(|&o| self.oi_has_widget(o)));
+        }
         let Some(ObjectKind::Extension(t)) = self.game.object(oi).map(|o| o.kind) else {
             return false;
         };
