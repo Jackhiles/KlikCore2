@@ -1544,10 +1544,15 @@ impl Viewer {
                 flags,
                 size: size_override,
                 face,
+                style,
                 ..
             } => {
                 let (f, px) = self.fonts.get(&self.rt.game, *font);
-                let f = face.as_deref().and_then(|n| self.fonts.installed(n)).or(f);
+                let f = if style.iter().any(Option::is_some) {
+                    self.fonts.styled(&self.rt.game, *font, face.as_deref(), style[0], style[1]).or(f)
+                } else {
+                    face.as_deref().and_then(|n| self.fonts.installed(n)).or(f)
+                };
                 let px = size_override.unwrap_or(px);
                 let mut c = rgba(*color);
                 c.a = item.tint[3] as f32 / 255.0;

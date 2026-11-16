@@ -123,6 +123,22 @@ impl Fonts {
         self.by_face(face, false)
     }
 
+    /// A font with bold / italic set by the game: the game's face (or the bank font's) in
+    /// that style, if installed.
+    pub fn styled(&mut self, g: &GameData, handle: Option<u32>, face: Option<&str>, bold: Option<bool>, italic: Option<bool>) -> Option<Font> {
+        let entry = handle.and_then(|h| Self::entry(g, h));
+        let name = face.map(str::to_string).or_else(|| entry.map(|e| e.face_name.clone())).unwrap_or_else(|| "arial".into());
+        let b = bold.unwrap_or(entry.is_some_and(|e| e.weight >= 600));
+        let i = italic.unwrap_or(entry.is_some_and(|e| e.italic));
+        let path = find_font_file(&name, b, i).or_else(|| find_font_file(&name, b, false)).or_else(|| find_font_file(&name, false, false))?;
+        if let Some(f) = self.by_file.get(&path) {
+            return Some(f.clone());
+        }
+        let f = load_ttf_font_from_bytes(&std::fs::read(&path).ok()?).ok()?;
+        self.by_file.insert(path, f.clone());
+        Some(f)
+    }
+
     /// (font, pixel height) for a bank font handle.
     pub fn get(&mut self, g: &GameData, handle: Option<u32>) -> (Option<Font>, f32) {
         let Some(h) = handle else { return (None, 16.0) };

@@ -19,6 +19,8 @@ pub enum Visual {
         size: Option<f32>,
         /// Font face set by the game ("set font name"), used when that font is installed.
         face: Option<String>,
+        /// Bold / italic set by the game (None = the font's own).
+        style: [Option<bool>; 2],
     },
     /// A row of images (counter digits, lives icons) whose bottom-right corner is the item position.
     Glyphs { handles: Vec<u32> },

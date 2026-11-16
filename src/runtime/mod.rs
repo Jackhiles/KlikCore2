@@ -205,6 +205,9 @@ pub struct Runtime {
     /// Sound playback model; its queued commands are executed by the audio backend.
     pub audio: audio::AudioState,
     pub input_mouse: (f64, f64),
+    /// The left button was held last tick / was let go this tick (touch extensions).
+    mouse_was_down: bool,
+    pub(crate) mouse_released: bool,
     rng: Cell<u64>,
     qualifiers: HashMap<u16, Vec<u16>>,
     bullets: HashSet<u32>,
@@ -309,6 +312,8 @@ impl Runtime {
             finished: false,
             audio: audio::AudioState::default(),
             input_mouse: (0.0, 0.0),
+            mouse_was_down: false,
+            mouse_released: false,
             rng: Cell::new(0x2545_F491_4F6C_DD1D),
             qualifiers,
             bullets: HashSet::default(),
@@ -544,6 +549,9 @@ impl Runtime {
             return;
         }
         self.input_mouse = input.mouse;
+        let down = input.down.contains(&1);
+        self.mouse_released = self.mouse_was_down && !down;
+        self.mouse_was_down = down;
         {
             let mut keys = self.ext_shared.keys.borrow_mut();
             keys.clear();
@@ -1035,6 +1043,19 @@ impl Runtime {
     }
 
     pub(crate) fn ext_expression(&self, oi: u16, idx: usize, args: &[Value]) -> Option<Value> {
+        // Touch extensions: the mouse is touch 0 (X / Y of a touch, newest / last ended).
+        let touch = match self.game.object(oi).map(|o| o.kind) {
+            Some(ObjectKind::Extension(t)) => self.ace_owner_label(t).eq_ignore_ascii_case("ext:multipletouch"),
+            _ => false,
+        };
+        if touch {
+            return match idx {
+                2 => Some(Value::Int(self.input_mouse.0 as i32)),
+                3 => Some(Value::Int(self.input_mouse.1 as i32)),
+                4 | 5 => Some(Value::Int(0)),
+                _ => None,
+            };
+        }
         self.exts.get(&oi)?.expression(idx, args, &self.files)
     }
 
@@ -1134,6 +1155,7 @@ impl Runtime {
                     flags: p.map_or(0, |p| p.flags),
                     size: inst.font_size,
                     face: inst.font_face.clone(),
+                    style: [inst.font_style[0], inst.font_style[1]],
                 },
                 0.0,
                 0.0,
@@ -1218,6 +1240,7 @@ impl Runtime {
                         flags: paragraph_flags::RIGHT | paragraph_flags::BOTTOM,
                         size: inst.font_size,
                         face: inst.font_face.clone(),
+                    style: [inst.font_style[0], inst.font_style[1]],
                     },
                     -w,
                     -h,

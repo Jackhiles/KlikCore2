@@ -91,6 +91,10 @@ pub struct Instance {
     pub text_color: Option<[u8; 4]>,
     pub font_size: Option<f32>,
     pub font_face: Option<String>,
+    /// Bold, italic, underline set by the game (None = the object's own font).
+    pub font_style: [Option<bool>; 3],
+    /// Paragraph shown by a text object (for next / previous paragraph).
+    pub paragraph: usize,
     /// "Follow the frame" is off: the position is in screen coordinates and ignores scrolling.
     pub fixed: bool,
     /// Windows-control extensions (edit box, list, button, combo box).
@@ -173,6 +177,8 @@ impl Instance {
             text_color: None,
             font_size: None,
             font_face: None,
+            font_style: [None; 3],
+            paragraph: 0,
             fixed: false,
             widget: None,
         };

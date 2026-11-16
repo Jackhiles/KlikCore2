@@ -38,6 +38,22 @@ impl Default for Shared {
     }
 }
 
+/// The System object (`kcsyso`): only the operating-system version so far, reported as a
+/// current Windows (games check it to refuse very old systems).
+struct SystemInfo;
+
+impl Extension for SystemInfo {
+    fn condition(&self, _: usize, _: &[Value], _: Comparison, _: &SaveFs) -> Option<bool> {
+        None
+    }
+    fn action(&mut self, _: usize, _: &[Value], _: &SaveFs) -> bool {
+        false
+    }
+    fn expression(&self, idx: usize, _: &[Value], _: &SaveFs) -> Option<Value> {
+        (idx == 5).then_some(Value::Int(10))
+    }
+}
+
 /// Create the native implementation for an extension file name (e.g. "kcini"), if we have
 /// one. `data` is the object's stored settings.
 pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dyn Extension>> {
@@ -51,7 +67,11 @@ pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dy
         "gstorex" => Some(Box::new(gsx::GlobalStore::with_store(shared.gsx.clone()))),
         "kcclock" => Some(Box::new(clock::Clock)),
         "kcfile" => Some(Box::new(kcfile::FileObject)),
-        "kcwctrl" | "drpc" | "hiddenproperties" | "android" | "inappandroid" | "xna" => {
+        // Cursor shape changes (arrow, text beam, ...): the system pointer stays as it is.
+        // (Its "use an object's image" action is handled by the runtime.)
+        "kccursor" => Some(Box::new(inert::Inert)),
+        "kcsyso" => Some(Box::new(SystemInfo)),
+        "kcwctrl" | "drpc" | "hiddenproperties" | "android" | "inappandroid" | "xna" | "androidplus" | "multipletouch" => {
             Some(Box::new(inert::Inert))
         }
         _ => None,

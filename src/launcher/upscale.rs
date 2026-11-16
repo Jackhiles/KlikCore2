@@ -334,6 +334,9 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
     // 1. The game's images as colour-only PNGs.
     let total = game.images.images.len();
     let mut sent = Vec::new();
+    // Single-colour shapes (text, font glyphs, masks): nothing for the AI to add, and on a
+    // flat colour the models produce garbage. These are enlarged directly.
+    let mut flat = Vec::new();
     for (k, e) in game.images.images.iter().enumerate() {
         if k % 25 == 0 {
             progress(format!("Preparing images {}/{total}...", k + 1));
@@ -342,11 +345,15 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
         if img.width * img.height < MIN_PIXELS {
             continue;
         }
+        if let Some(c) = flat_colour(&img) {
+            flat.push((e.handle, c));
+            continue;
+        }
         let rgb: Vec<u8> = bleed(&img).into_iter().flatten().collect();
         write_png(&inp.join(format!("{}.png", e.handle)), img.width, img.height, png::ColorType::Rgb, &rgb)?;
         sent.push(e.handle);
     }
-    if sent.is_empty() {
+    if sent.is_empty() && flat.is_empty() {
         return Err("the game has no images to upscale".into());
     }
 
@@ -356,7 +363,9 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
         Style::Render => ("realesrgan-x4plus", 4),
     };
     let label = format!("{}, {scale}x", style.label());
-    ai_pass(exe, model, model_scale, inp, outp, &[], sent.len(), &label, progress)?;
+    if !sent.is_empty() {
+        ai_pass(exe, model, model_scale, inp, outp, &[], sent.len(), &label, progress)?;
+    }
 
     // 3. Back to the wanted size, with the original transparency. Images the AI got wrong
     // (missing, or black: the GPU driver sometimes drops a long run, "device lost", and
@@ -367,6 +376,14 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
     let _ = std::fs::remove_dir_all(&images);
     std::fs::create_dir_all(&images).map_err(|e| e.to_string())?;
     let mut written = 0;
+    for &(h, colour) in &flat {
+        if let Some(orig) = game.images.get(h).and_then(|e| e.decode_rgba().ok()) {
+            let (nw, nh) = target_size(orig.width, orig.height, scale);
+            let rgb: Vec<u8> = std::iter::repeat_n(colour, (nw * nh) as usize).flatten().collect();
+            write_png(&images.join(format!("{h}.png")), nw, nh, png::ColorType::Rgba, &with_alpha(&orig, &rgb, nw, nh))?;
+            written += 1;
+        }
+    }
     let mut todo = sent.clone();
     for attempt in 0..3 {
         let mut failed = Vec::new();
@@ -457,38 +474,80 @@ fn ai_pass(exe: &Path, model: &str, model_scale: u32, inp: &Path, outp: &Path, e
 fn save_one(game: &GameData, h: u32, scale: u32, outp: &Path, images: &Path) -> Result<bool, String> {
     let Ok((aw, ah, rgb)) = read_rgb(&outp.join(format!("{h}.png"))) else { return Ok(false) };
     let Some(orig) = game.images.get(h).and_then(|e| e.decode_rgba().ok()) else { return Ok(true) };
-    let original_black = orig.pixels.chunks_exact(4).all(|p| p[3] == 0 || (p[0] | p[1] | p[2]) == 0);
-    if !original_black && rgb.iter().all(|&v| v == 0) {
+    // The visible part's average colour must survive (a wrong output is often black or
+    // grey all over).
+    let (ow, oh) = (orig.width, orig.height);
+    let small = resize(&rgb, aw as usize, ah as usize, 3, ow as usize, oh as usize);
+    let (mut a, mut b, mut n) = ([0f64; 3], [0f64; 3], 0f64);
+    for (o, s) in orig.pixels.chunks_exact(4).zip(small.chunks_exact(3)) {
+        if o[3] > 127 {
+            for c in 0..3 {
+                a[c] += o[c] as f64;
+                b[c] += s[c] as f64;
+            }
+            n += 1.0;
+        }
+    }
+    if n > 0.0 && (0..3).map(|c| (a[c] - b[c]).abs() / n).fold(0.0, f64::max) > 48.0 {
         return Ok(false);
     }
-    let (ow, oh) = (orig.width, orig.height);
-    // The wanted size, kept within the texture limit.
-    let fit = (MAX_SIDE as f32 / (ow.max(oh) * scale) as f32).min(1.0);
-    let (nw, nh) = (((ow * scale) as f32 * fit).round().max(1.0) as u32, ((oh * scale) as f32 * fit).round().max(1.0) as u32);
+    let (nw, nh) = target_size(ow, oh, scale);
     let rgb = resize(&rgb, aw as usize, ah as usize, 3, nw as usize, nh as usize);
+    write_png(&images.join(format!("{h}.png")), nw, nh, png::ColorType::Rgba, &with_alpha(&orig, &rgb, nw, nh))?;
+    Ok(true)
+}
+
+/// The pack size of an image: `scale` times larger, kept within the texture limit.
+fn target_size(w: u32, h: u32, scale: u32) -> (u32, u32) {
+    let fit = (MAX_SIDE as f32 / (w.max(h) * scale) as f32).min(1.0);
+    (((w * scale) as f32 * fit).round().max(1.0) as u32, ((h * scale) as f32 * fit).round().max(1.0) as u32)
+}
+
+/// Colour at the pack size plus the original's transparency, enlarged.
+fn with_alpha(orig: &RgbaImage, rgb: &[u8], nw: u32, nh: u32) -> Vec<u8> {
     let alpha: Vec<u8> = orig.pixels.chunks_exact(4).map(|p| p[3]).collect();
-    let opaque = alpha.iter().all(|&a| a == 255);
     let mut rgba = Vec::with_capacity((nw * nh * 4) as usize);
-    if opaque {
+    if alpha.iter().all(|&a| a == 255) {
         for p in rgb.chunks_exact(3) {
             rgba.extend_from_slice(&[p[0], p[1], p[2], 255]);
         }
-    } else {
-        let hard = alpha.iter().all(|&a| a == 0 || a == 255);
-        let a = resize(&alpha, ow as usize, oh as usize, 1, nw as usize, nh as usize);
-        for (p, &a) in rgb.chunks_exact(3).zip(&a) {
-            // Cut-out sprites keep crisp edges (smoothed a little, not blurred).
-            let a = if hard { (((a as f32 - 128.0) * 2.0) + 128.0).clamp(0.0, 255.0) as u8 } else { a };
-            rgba.extend_from_slice(&[p[0], p[1], p[2], a]);
-        }
+        return rgba;
     }
-    write_png(&images.join(format!("{h}.png")), nw, nh, png::ColorType::Rgba, &rgba)?;
-    Ok(true)
+    let hard = alpha.iter().all(|&a| a == 0 || a == 255);
+    let a = resize(&alpha, orig.width as usize, orig.height as usize, 1, nw as usize, nh as usize);
+    for (p, &a) in rgb.chunks_exact(3).zip(&a) {
+        // Cut-out sprites keep crisp edges (smoothed a little, not blurred).
+        let a = if hard { (((a as f32 - 128.0) * 2.0) + 128.0).clamp(0.0, 255.0) as u8 } else { a };
+        rgba.extend_from_slice(&[p[0], p[1], p[2], a]);
+    }
+    rgba
+}
+
+/// The colour of an image whose visible pixels are (nearly) all one colour.
+fn flat_colour(img: &RgbaImage) -> Option<[u8; 3]> {
+    let (mut lo, mut hi, mut sum, mut n) = ([255u8; 3], [0u8; 3], [0u64; 3], 0u64);
+    for p in img.pixels.chunks_exact(4).filter(|p| p[3] > 0) {
+        for c in 0..3 {
+            lo[c] = lo[c].min(p[c]);
+            hi[c] = hi[c].max(p[c]);
+            sum[c] += p[c] as u64;
+        }
+        n += 1;
+    }
+    (n > 0 && (0..3).all(|c| hi[c] - lo[c] <= 12)).then(|| [(sum[0] / n) as u8, (sum[1] / n) as u8, (sum[2] / n) as u8])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_colour_images_are_found() {
+        let img = RgbaImage { width: 2, height: 1, pixels: vec![250, 250, 250, 255, 0, 0, 0, 0] };
+        assert_eq!(flat_colour(&img), Some([250, 250, 250]));
+        let img = RgbaImage { width: 2, height: 1, pixels: vec![250, 250, 250, 255, 10, 10, 10, 255] };
+        assert_eq!(flat_colour(&img), None);
+    }
 
     #[test]
     fn scale_targets_1080() {

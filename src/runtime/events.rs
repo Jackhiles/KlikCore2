@@ -814,6 +814,8 @@ impl Runtime {
                 let (cmp, rhs) = self.param_cmp(c, 0, sel, None);
                 Value::Int(self.lives[player_index(c.object_info)]).compare(cmp, &rhs)
             }
+            // The player has no lives left.
+            (PLAYER, -5) => self.lives[player_index(c.object_info)] <= 0,
             (SOUND, -1) => {
                 Self::param_sample(c, 0).is_none_or(|h| !self.audio.is_sample_playing(h))
             }
@@ -879,6 +881,9 @@ impl Runtime {
             return self.filter(oi, sel, neg, |rt, _, i| {
                 rt.instances[i].widget.as_ref().and_then(|w| w.condition(idx)).unwrap_or(false)
             });
+        }
+        if c.object_type >= 32 && c.num <= -81 && self.ace_owner_label(c.object_type).eq_ignore_ascii_case("ext:multipletouch") {
+            return self.touch_condition(c, sel, input, neg);
         }
         if c.object_type >= 32 && c.num <= -81 {
             let idx = (-(c.num as i32) - 81) as usize;
@@ -1085,6 +1090,17 @@ impl Runtime {
                 let (cmp, v) = rt.param_cmp(c, 1, s, cur(i));
                 Value::Str(rt.instances[i].string(idx)).compare(cmp, &v)
             }),
+            // Compare an expression (usually about the object itself) with a value.
+            -45 => self.filter(oi, sel, neg, |rt, s, i| {
+                let v = rt.eval_param(c, 0, s, cur(i));
+                let (cmp, rhs) = rt.param_cmp(c, 1, s, cur(i));
+                v.compare(cmp, &rhs)
+            }),
+            // Active: compare the angle (with "set angle", 88, and the angle expression, 83).
+            -82 if c.object_type == 2 => self.filter(oi, sel, neg, |rt, s, i| {
+                let (cmp, v) = rt.param_cmp(c, 0, s, cur(i));
+                Value::Float(rt.instances[i].angle).compare(cmp, &v)
+            }),
             -81 if c.object_type == 7 => self.filter(oi, sel, neg, |rt, s, i| {
                 let (cmp, v) = rt.param_cmp(c, 0, s, cur(i));
                 rt.instances[i].counter.compare(cmp, &v)
@@ -1129,6 +1145,8 @@ impl Runtime {
         match (a.object_type, a.num) {
             (SYS, 0) => {}
             // Execute external program (path, command line, flags).
+            // Load a font from a file: text uses installed fonts (or the default) instead.
+            (SYS, 25) => {}
             (SYS, 22) => {
                 let path = self.eval_param(a, 0, sel, None).as_string();
                 let args = self.eval_param(a, 1, sel, None).as_string();
@@ -1460,6 +1478,21 @@ impl Runtime {
             }
         }
         if let ObjectKind::Extension(_) = kind {
+            if (a.num == 104 || a.num == 108) && self.instances[idx].widget.as_ref().is_some_and(|w| w.kind == super::widgets::WidgetKind::Edit) {
+                if a.num == 104 {
+                    if let Some(Param::Position(p)) = a.params.first().map(|p| &p.value) {
+                        if let Some((x, y, _, _)) = self.resolve_position(p, sel, cur) {
+                            self.instances[idx].set_position(x, y);
+                        }
+                    }
+                } else {
+                    let w = self.eval_param(a, 0, sel, cur).as_f64().max(1.0) as f32;
+                    if let Some(widget) = self.instances[idx].widget.as_mut() {
+                        widget.w = w;
+                    }
+                }
+                return;
+            }
             if a.num >= 80 && self.instances[idx].widget.is_some() {
                 let (args, _) = self.ext_args(a, sel, cur);
                 let files = &self.files;
@@ -1818,11 +1851,32 @@ impl Runtime {
             // Display paragraph N (the paragraph parameter, as 1.5 data stores it).
             (ObjectKind::Text, 84) => {
                 let n = self.param_index(a, 0, sel, cur);
-                if let Some(ObjectProperties::Common(c)) = self.game.object(self.instances[idx].oi).map(|o| &o.props) {
-                    if let Some(p) = c.text.as_ref().and_then(|t| t.paragraphs.get(n)) {
-                        self.instances[idx].text = p.text.clone();
+                self.show_paragraph(idx, n);
+            }
+            // Display the text at a position, showing paragraph N.
+            (ObjectKind::Text, 81) => {
+                if let Some(Param::Position(p)) = a.params.first().map(|p| &p.value) {
+                    if let Some((x, y, _, _)) = self.resolve_position(p, sel, cur) {
+                        self.instances[idx].set_position(x, y);
                     }
                 }
+                let n = self.param_index(a, 1, sel, cur);
+                self.instances[idx].visible = true;
+                self.show_paragraph(idx, n);
+            }
+            // Previous / next paragraph.
+            (ObjectKind::Text, 85) => {
+                let n = self.instances[idx].paragraph.saturating_sub(1);
+                self.show_paragraph(idx, n);
+            }
+            (ObjectKind::Text, 86) => {
+                let n = self.instances[idx].paragraph + 1;
+                self.show_paragraph(idx, n);
+            }
+            // Bold, italic, underline.
+            (_, n @ 52..=54) => {
+                let on = self.eval_param(a, 0, sel, cur).as_i32() != 0;
+                self.instances[idx].font_style[(n - 52) as usize] = Some(on);
             }
             (ObjectKind::Text, 88) => {
                 self.instances[idx].text = self.eval_param(a, 0, sel, cur).as_string()
@@ -1839,6 +1893,51 @@ impl Runtime {
                 );
             }
         }
+    }
+
+    /// Show paragraph `n` of a text object (if it has that many).
+    fn show_paragraph(&mut self, idx: usize, n: usize) {
+        if let Some(ObjectProperties::Common(c)) = self.game.object(self.instances[idx].oi).map(|o| &o.props) {
+            if let Some(p) = c.text.as_ref().and_then(|t| t.paragraphs.get(n)) {
+                self.instances[idx].text = p.text.clone();
+                self.instances[idx].paragraph = n;
+            }
+        }
+    }
+
+    /// Touch extensions on a computer: the mouse is touch number 0 (pressed = a new touch,
+    /// held = touching, released = the touch ended).
+    fn touch_condition(&mut self, c: &Ace, sel: &mut Sel, input: &Input, neg: bool) -> bool {
+        let (mx, my) = input.mouse;
+        let held = input.down.contains(&1);
+        let first = |rt: &Self, sel: &Sel| rt.param_i(c, 0, sel, None) == 0;
+        let on_object = |rt: &mut Self, sel: &mut Sel, i: usize, active: bool| {
+            let Some(target) = Self::param_object(c, i) else { return false };
+            if !active {
+                return neg;
+            }
+            rt.filter(target, sel, neg, |rt, _, k| rt.instances[k].visible && rt.point_in(k, mx, my))
+        };
+        let r = match c.num {
+            // Touch N ended.
+            -82 => self.mouse_released && first(self, sel),
+            // A new touch.
+            -83 => input.clicked[0],
+            // Touch N is active.
+            -86 => held && first(self, sel),
+            // A new touch on an object.
+            -87 => return on_object(self, sel, 0, input.clicked[0]),
+            // Touch N is on an object.
+            -88 => {
+                let active = held && first(self, sel);
+                return on_object(self, sel, 1, active);
+            }
+            n => {
+                self.note_unimplemented(format!("cond {}/{}", self.ace_owner_label(c.object_type), n), ());
+                false
+            }
+        };
+        r != neg
     }
 
     /// Direction parameter: a 32-bit mask (code 29) or an expression giving 0..31.
