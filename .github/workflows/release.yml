@@ -18,13 +18,10 @@ jobs:
           - os: windows-latest
             built: target/release/klikcore.exe
             asset: klikcore-windows-x86_64.exe
-            # The project was called Rekindle: installed copies look for these names.
-            legacy: rekindle-windows-x86_64.exe
           # Ubuntu 22.04's older glibc keeps the binary compatible with SteamOS and most distros.
           - os: ubuntu-22.04
             built: target/release/klikcore
             asset: klikcore-linux-x86_64
-            legacy: rekindle-linux-x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -40,7 +37,6 @@ jobs:
         shell: bash
         run: |
           cp "${{ matrix.built }}" "${{ matrix.asset }}"
-          cp "${{ matrix.built }}" "${{ matrix.legacy }}"
       - name: AppImage (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -62,14 +58,11 @@ jobs:
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
           ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir KlikCore-x86_64.AppImage
-          cp KlikCore-x86_64.AppImage Rekindle-x86_64.AppImage
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ matrix.asset }}
-            ${{ matrix.legacy }}
             KlikCore-x86_64.AppImage
-            Rekindle-x86_64.AppImage
           fail_on_unmatched_files: false
           generate_release_notes: true
           # Tags with a dash (v0.1.2-test1) are test builds: pre-releases, which the updater ignores.
