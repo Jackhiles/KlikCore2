@@ -136,9 +136,10 @@ struct Cli {
     saves: Option<String>,
 
     /// Make an AI upscale pack for the game with Real-ESRGAN (downloaded on first use):
-    /// `art` for drawn art, `render` for 3D renders and photos, `repair` to redo only the
+    /// `auto` to tell from the game's images, `art` for drawn art, `render` for 3D renders and
+    /// photos (`guess` prints which `auto` would pick), `repair` to redo only the
     /// images of an existing pack that are missing or came out wrong, `remove` to delete it.
-    #[arg(long, value_name = "art|render|repair|remove")]
+    #[arg(long, value_name = "auto|art|render|repair|remove")]
     upscale: Option<String>,
 
     /// With --upscale: 2, 3 or 4 (default: whatever brings the game to about 1080p).
@@ -291,11 +292,15 @@ fn main() -> Result<()> {
                 *last.borrow_mut() = s;
             }
         };
+        if style == "guess" {
+            println!("{}", upscale::guess_style_for(&game_path).map_err(anyhow::Error::msg)?);
+            return Ok(());
+        }
         let r = if style == "repair" {
             upscale::repair_pack(&game_path, &progress)
         } else {
             let Some(style) = upscale::Style::parse(style) else {
-                anyhow::bail!("--upscale takes art, render, repair or remove");
+                anyhow::bail!("--upscale takes auto, art, render, repair or remove");
             };
             upscale::make_pack(&game_path, style, cli.upscale_scale, &progress)
         };

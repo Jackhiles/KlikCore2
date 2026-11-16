@@ -496,8 +496,7 @@ impl Launcher {
                     items.push(("Repair AI upscale pack", MenuAction::RepairUpscale(i)));
                     items.push(("Remove AI upscale pack", MenuAction::RemoveUpscale(i)));
                 } else {
-                    items.push(("AI upscale: drawn art", MenuAction::Upscale(i, super::upscale::Style::Art)));
-                    items.push(("AI upscale: 3D renders", MenuAction::Upscale(i, super::upscale::Style::Render)));
+                    items.push(("Make AI upscale pack", MenuAction::Upscale(i, super::upscale::Style::Auto)));
                 }
             }
             items.push(("Refresh artwork", MenuAction::RefreshArt(i)));

@@ -44,6 +44,8 @@ pub enum Style {
     Art,
     /// 3D renders and photos.
     Render,
+    /// Worked out from the game's images (`guess_style`).
+    Auto,
 }
 
 impl Style {
@@ -51,6 +53,7 @@ impl Style {
         match s {
             "art" | "drawn" => Some(Self::Art),
             "render" | "renders" | "3d" | "photo" => Some(Self::Render),
+            "auto" => Some(Self::Auto),
             _ => None,
         }
     }
@@ -58,8 +61,74 @@ impl Style {
         match self {
             Self::Art => "drawn art",
             Self::Render => "3D renders",
+            Self::Auto => "automatic",
         }
     }
+}
+
+/// Drawn art or 3D renders? Renders and photos are full of gradients and grain: neighbouring
+/// pixels that differ a little. Drawn and pixel art is mostly flat colour with hard edges.
+/// Measured over up to 60 of the game's images (renders score about 0.4-0.6, drawn art
+/// 0.02-0.32).
+pub fn guess_style(game: &GameData) -> Style {
+    let (mut sum, mut n) = (0f32, 0u32);
+    let images = &game.images.images;
+    let stride = (images.len() / 240).max(1);
+    for e in images.iter().step_by(stride) {
+        if n >= 60 {
+            break;
+        }
+        if e.width < 48 || e.height < 48 {
+            continue;
+        }
+        let Ok(img) = e.decode_rgba() else { continue };
+        if let Some(f) = soft_share(&img) {
+            sum += f;
+            n += 1;
+        }
+    }
+    if n > 0 && sum / n as f32 > 0.36 {
+        Style::Render
+    } else {
+        Style::Art
+    }
+}
+
+/// The style `auto` would choose for a game, as text ("drawn art" / "3D renders").
+pub fn guess_style_for(game_path: &Path) -> Result<&'static str, String> {
+    let game = GameData::load(game_path).map_err(|e| format!("could not load the game: {e}"))?;
+    Ok(guess_style(&game).label())
+}
+
+/// Share of horizontally neighbouring visible pixels that differ by 1-24 levels (sampled
+/// on a grid of at most about 256 x 256). None for images too small or nearly one colour.
+fn soft_share(img: &RgbaImage) -> Option<f32> {
+    let (w, h) = (img.width as usize, img.height as usize);
+    let step = (w.max(h) / 256).max(1);
+    let px = |x: usize, y: usize| &img.pixels[(y * w + x) * 4..(y * w + x) * 4 + 4];
+    let (mut soft, mut total, mut visible) = (0u32, 0u32, 0u32);
+    let mut colours = std::collections::HashSet::new();
+    for y in (0..h).step_by(step) {
+        let mut x = 0;
+        while x + step < w {
+            let (a, b) = (px(x, y), px(x + step, y));
+            if a[3] > 127 {
+                visible += 1;
+                if colours.len() < 8 {
+                    colours.insert([a[0], a[1], a[2]]);
+                }
+                if b[3] > 127 {
+                    let d = (0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap_or(0);
+                    total += 1;
+                    if (1..=24).contains(&d) {
+                        soft += 1;
+                    }
+                }
+            }
+            x += step;
+        }
+    }
+    (visible >= 500 && colours.len() >= 4 && total > 0).then(|| soft as f32 / total as f32)
 }
 
 /// Is AI upscaling available on this system (a Real-ESRGAN build exists for it)?
@@ -332,8 +401,8 @@ const BATCH: usize = 150;
 /// How a pack was made (`pack.ini` in the pack folder), for repairs.
 fn write_pack_info(pack: &Path, style: Style, scale: u32) {
     let style = match style {
-        Style::Art => "art",
         Style::Render => "render",
+        _ => "art",
     };
     let _ = std::fs::write(pack.join("pack.ini"), format!("[ai-upscale]\r\nstyle={style}\r\nscale={scale}\r\n"));
 }
@@ -372,6 +441,7 @@ pub fn make_pack(game_path: &Path, style: Style, scale: u32, progress: Progress)
     progress("Reading the game...".into(), Some(0.0));
     let game = GameData::load(game_path).map_err(|e| format!("could not load the game: {e}"))?;
     let scale = if scale == 0 { auto_scale(game.header.window_height as u32) } else { scale.clamp(2, 4) };
+    let style = if style == Style::Auto { guess_style(&game) } else { style };
     with_work_dir(|inp, outp| run(&game, &exe, style, scale, inp, outp, game_path, false, progress))
 }
 
@@ -507,8 +577,8 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
 
     // 2. Real-ESRGAN, a batch at a time.
     let (model, model_scale) = match style {
-        Style::Art => ("realesr-animevideov3", scale),
         Style::Render => ("realesrgan-x4plus", 4),
+        _ => ("realesr-animevideov3", scale),
     };
     let label = format!("{}, {scale}x", style.label());
     let staged = inp.with_file_name("batch");
@@ -716,6 +786,24 @@ mod tests {
         assert!(!looks_right(&orig, &vec![0; 8 * 8 * 3]));
         // Detail wiped out: the right average colour, no checkerboard.
         assert!(!looks_right(&orig, &vec![50; 8 * 8 * 3]));
+    }
+
+    #[test]
+    fn renders_and_drawn_art_are_told_apart() {
+        // A smooth gradient (a render) and four flat colour bands (drawn art), 64x64.
+        let mut grad = Vec::new();
+        let mut flat = Vec::new();
+        for _y in 0..64u32 {
+            for x in 0..64u32 {
+                let g = (x * 3 + 20) as u8;
+                grad.extend_from_slice(&[g, g / 2, 255 - g, 255]);
+                let band = [[200, 40, 40], [40, 200, 40], [40, 40, 200], [220, 220, 30]][(x / 16) as usize];
+                flat.extend_from_slice(&[band[0], band[1], band[2], 255]);
+            }
+        }
+        let render = soft_share(&RgbaImage { width: 64, height: 64, pixels: grad }).unwrap();
+        let art = soft_share(&RgbaImage { width: 64, height: 64, pixels: flat }).unwrap();
+        assert!(render > 0.36 && art < 0.36, "{render} {art}");
     }
 
     #[test]

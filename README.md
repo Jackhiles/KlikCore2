@@ -234,8 +234,10 @@ collisions still use the original images, so gameplay is unchanged. When a pack'
 originals, the game is drawn at the window's resolution instead of its own, so the extra detail isn't scaled away.
 
 ### AI upscaling packs
-A game's **...** menu in the launcher has **AI upscale: drawn art** and **AI upscale: 3D renders** (Windows and
-Linux / Steam Deck; also `klikcore GAME --upscale art|render [--upscale-scale 2|3|4]`). KlikCore runs the game's images
+A game's **...** menu in the launcher has **Make AI upscale pack** (Windows and Linux / Steam Deck; also
+`klikcore GAME --upscale auto|art|render [--upscale-scale 2|3|4]`). The style is worked out from the game's images:
+3D renders and photos (full of gradients and grain) or drawn and pixel art (flat colour, hard edges);
+`--upscale guess` prints which it would pick. KlikCore runs the game's images
 once through [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) (BSD-3-Clause; its portable Vulkan build, about
 45 MB, is downloaded into `<data dir>\tools\realesrgan` the first time) and saves them as an ordinary replacement
 pack, `mods\<game>\AI upscale\`. The scale brings the game to about 1080p (2x for 720p games, 3x for 480p, up to 4x).
