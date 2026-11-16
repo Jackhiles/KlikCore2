@@ -83,7 +83,7 @@ fine. (`cargo build --release` alone leaves the program in `target/release/`.)
 ### Launcher
 Run `klikcore` without a game to open the launcher: a grid of game covers with the selected game's details beside it.
 Covers and banners come from Steam's library artwork when the game is a Steam game, otherwise they are generated from
-the game's own images (cached in `%APPDATA%\KlikCorert\`; *Refresh artwork* in a game's menu makes them again).
+the game's own images (cached in `%APPDATA%\KlikCore\art\`; *Refresh artwork* in a game's menu makes them again).
 Type to search; arrow keys / D-pad move, Enter / A plays, Y opens settings. **+ Add** adds a game file, a folder of
 games (also `klikcore --add FILE_OR_FOLDER`) or Steam games; the **...** menu has Steam games, the play log and the data
 folder. A game's own **...** menu has Add to Steam, Desktop shortcut (also `klikcore GAME --shortcut`), Mods folder,
@@ -100,7 +100,9 @@ collection. Steam only reads its shortcuts when it starts and may overwrite the 
 open, so a running Steam is closed and started again around the change (in Steam's Gaming Mode, where that isn't
 possible, the shortcut appears after the next restart). The original file is kept as `shortcuts.vdf.klikcore-backup`. Release builds of the launcher also add **KlikCore itself** to
 Steam when it isn't there yet: quietly when Steam is closed, otherwise the status bar offers it (Add / Not now /
-Don't ask again, saved as `add_self_to_steam=never` in `launcher.ini`).
+Don't ask again, saved as `add_self_to_steam=never` in `launcher.ini`). Its shortcut gets KlikCore's own artwork (portrait
+and wide capsules, a honeycomb hero background and the logo); an older shortcut (made under the Rekindle name) is
+renamed when Steam is closed, and its artwork is replaced whenever KlikCore's changes.
 
 **Steam games** finds Clickteam Fusion games installed through Steam (all Steam libraries; on Linux also Flatpak
 Steam) and adds them, either linked where Steam installed them or copied into a storage folder you choose (so they
@@ -170,15 +172,27 @@ shortcuts, Steam, the self-updater, and games that start Windows programs.
 
 ### Controllers
 Games that only support keyboard and mouse can be played with a gamepad (Xbox / PlayStation controllers, Steam Deck).
-On by default; per game in the launcher's **Settings** (on/off, left stick as arrow keys or W A S D, cursor speed).
+On by default; per game in the launcher's **Settings** (on/off, left stick keys: automatic / arrow keys / W A S D,
+cursor speed).
+
+The layout comes from the game, the same way as the Android touch controls: KlikCore reads the game's events for the
+keys it uses. The D-pad and left stick press its direction keys (arrows, W A S D or the player's own keys) and A, B,
+X, Y, RB, LB press its other keys, most used first (Enter, if the game uses it, on A). Each frame is also classed as
+played with keys or with the pointer: in pointer frames (menus, point-and-click screens) A clicks and the left stick
+moves the cursor. A legend along the bottom shows the buttons whenever the layout changes. Games without keys get:
 
 | Control | Becomes |
 |---|---|
-| Left stick / D-pad | arrow keys (or W A S D) |
+| Left stick / D-pad | cursor / arrow keys |
 | Right stick | an on-screen mouse cursor (moving the real mouse takes over again) |
-| RB / RT, LB / LT | left click, right click |
-| A / Start, B, X, Y | Enter, Space, Ctrl, Shift |
+| RT (RB), LT (LB) | left click, right click |
+| A, Start, B, X, Y | click, Enter, Space, Ctrl, Shift |
 | Back / Select | Escape |
+
+**Steam Input**: Steam (Steam Deck, or any controller when a game starts from Steam) gives games a virtual Xbox
+controller. On Windows it does that through XInput, so KlikCore reads XInput first and only falls back to other
+controllers (PlayStation and others without Steam) when XInput has none; on Linux Steam's virtual controller is
+preferred over the real one. Steam's default gamepad layout works as is, and a layout changed in Steam applies too.
 
 Remap buttons in the game's settings file (`%APPDATA%\KlikCore\settings\<game>.ini`) with lines like `pad_south=32`
 (button: `south east west north start select lb rb lt rt l3 r3 up down left right`; value: a Windows key code,
@@ -201,7 +215,9 @@ collisions still use the original images, so gameplay is unchanged.
 
 ### Display and errors
 - **Fullscreen**: games that ask for fullscreen at start get it; `--fullscreen` / `--windowed` override that, and
-  Alt+Enter or F11 toggles while playing. Your last choice is remembered per game in `klikcore.ini` in the save folder.
+  Alt+Enter or F11 toggles while playing. Fullscreen is borderless (a window covering the screen, no display mode
+  change, so switching away is instant); on Windows it covers the monitor the window is on, and leaving it puts the
+  window back where it was. Your last choice is remembered per game in `klikcore.ini` in the save folder.
 - **Per-game settings** (launcher: **Settings** on a game; stored in `%APPDATA%\KlikCore\settings\<game>.ini`):
   fullscreen (game default / on / off), window size (auto, 1x-3x), scaling (fit keeps the shape, integer keeps pixels
   crisp, stretch fills the window), upscaling filter (sharp pixels, smooth, enhanced bicubic, HD: bicubic with halo-free edge sharpening for drawn art, or pixel art: Scale2x-style diagonal smoothing), and whether the debug

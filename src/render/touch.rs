@@ -321,6 +321,41 @@ pub fn frame_modes(per_frame: &[KeyCounts], pointer: &[u32], movement: &[bool], 
         .collect()
 }
 
+/// A game's controls worked out from its events, shared by the touch controls and the
+/// gamepad: the keys (a D-pad and the buttons, most used first) and, per frame, whether
+/// it is played with them (true) or point-and-click (false).
+#[derive(Debug, Clone, Default)]
+pub struct GameControls {
+    pub controls: ControlSet,
+    pub frame_uses_keys: Vec<bool>,
+    pub(crate) per_frame: Vec<KeyCounts>,
+    pub(crate) pointer: Vec<u32>,
+    pub(crate) movement: Vec<bool>,
+}
+
+impl GameControls {
+    pub fn analyse(game: &GameData) -> Self {
+        let per_frame = frame_keys(game);
+        let mut all = KeyCounts::default();
+        for k in &per_frame {
+            all.merge(k);
+        }
+        let dirs = game.header.controls[0].keys;
+        let controls = ControlSet::choose(&all, [dirs[0], dirs[1], dirs[2], dirs[3]]);
+        let mut a = Self { controls, frame_uses_keys: Vec::new(), per_frame, pointer: frame_pointer_use(game), movement: frame_player_movement(game) };
+        a.frame_uses_keys = a.modes_for(game, &a.controls.clone());
+        a
+    }
+
+    /// Per-frame modes for a set of controls.
+    pub fn modes_for(&self, game: &GameData, controls: &ControlSet) -> Vec<bool> {
+        let in_set = |vk: u16| controls.buttons.contains(&vk) || controls.dpad.is_some_and(|d| d.contains(&vk));
+        let dpad_keys: Vec<u16> = controls.dpad.map(|d| d.to_vec()).unwrap_or_default();
+        let held = frame_held_directions(game, &dpad_keys);
+        frame_modes(&self.per_frame, &self.pointer, &self.movement, &held, &in_set)
+    }
+}
+
 /// Keys that never get a button: mouse buttons, Escape (Android's Back), function keys
 /// (the viewer's own), the Windows keys, and Page Up / Down, End, Home, Insert and Delete
 /// (in games mostly debug keys or "erase my progress").
@@ -536,28 +571,22 @@ pub struct TouchControls {
 const MOUSE_ID: u64 = u64::MAX;
 
 impl TouchControls {
-    pub fn new(game: &GameData, s: &Settings) -> Self {
+    pub fn new(game: &GameData, a: &GameControls, s: &Settings) -> Self {
         let env = std::env::var("KLIKCORE_TOUCH_CONTROLS").unwrap_or_default();
         let on = if env.is_empty() { cfg!(target_os = "android") } else { !matches!(env.as_str(), "0" | "off") };
-        let per_frame = frame_keys(game);
-        let mut all = KeyCounts::default();
-        for k in &per_frame {
-            all.merge(k);
-        }
-        let dirs = game.header.controls[0].keys;
-        let pointer = frame_pointer_use(game);
-        let mut controls = ControlSet::choose(&all, [dirs[0], dirs[1], dirs[2], dirs[3]]);
+        let mut controls = a.controls.clone();
+        let mut frame_uses_keys = a.frame_uses_keys.clone();
         if controls.is_empty() && s.touch_controls == TouchMode::On {
             controls = ControlSet { dpad: Some(ARROWS), buttons: vec![ENTER, 0x20] };
+            frame_uses_keys = a.modes_for(game, &controls);
         }
         let active = on && !controls.is_empty();
         let in_set = |vk: &u16| controls.buttons.contains(vk) || controls.dpad.is_some_and(|d| d.contains(vk));
         // Per frame: key tests (of keys that have a control) against pointer use.
+        let (per_frame, pointer, movement) = (&a.per_frame, &a.pointer, &a.movement);
         let key_refs: Vec<u32> = per_frame.iter().map(|k| k.0.iter().filter(|(vk, _)| in_set(vk)).map(|(_, n)| n).sum()).collect();
-        let movement = frame_player_movement(game);
         let dpad_keys: Vec<u16> = controls.dpad.map(|d| d.to_vec()).unwrap_or_default();
         let held = frame_held_directions(game, &dpad_keys);
-        let frame_uses_keys = frame_modes(&per_frame, &pointer, &movement, &held, &|vk| in_set(&vk));
         if env == "debug" {
             for (i, k) in per_frame.iter().enumerate() {
                 let mut v: Vec<_> = k.0.iter().map(|(k, n)| (key_label(*k), *n)).collect();

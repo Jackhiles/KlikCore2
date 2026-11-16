@@ -102,8 +102,9 @@ pub struct Settings {
     pub hud: bool,
     /// Map a gamepad to keyboard + mouse.
     pub pad: bool,
-    /// Left stick / D-pad press W A S D instead of the arrow keys.
-    pub pad_wasd: bool,
+    /// Keys the left stick / D-pad press: None = the game's own (worked out from its
+    /// events), Some(false) = arrow keys, Some(true) = W A S D.
+    pub pad_wasd: Option<bool>,
     /// Right-stick cursor speed: 1 slow, 2 normal, 3 fast.
     pub pad_speed: u8,
     /// Button remaps, e.g. ("south", "13") or ("rt", "click"); see `render::gamepad`.
@@ -122,7 +123,7 @@ impl Default for Settings {
             window_scale: 0,
             hud: false,
             pad: true,
-            pad_wasd: false,
+            pad_wasd: None,
             pad_speed: 2,
             pad_map: Vec::new(),
             touch_controls: TouchMode::Auto,
@@ -177,7 +178,10 @@ impl Settings {
                 "window_scale" => self.window_scale = v.parse::<u8>().unwrap_or(0).min(4),
                 "hud" => self.hud = on,
                 "controller" => self.pad = on,
-                "controller_move" => self.pad_wasd = v == "wasd",
+                // Older files always wrote controller_move (arrows by default), so only an
+                // explicit W A S D carries over.
+                "controller_move" if v == "wasd" => self.pad_wasd = Some(true),
+                "controller_keys" => self.pad_wasd = match v.as_str() { "wasd" => Some(true), "arrows" => Some(false), _ => None },
                 "controller_cursor_speed" => self.pad_speed = v.parse::<u8>().unwrap_or(2).clamp(1, 3),
                 "touch_controls" => self.touch_controls = TouchMode::parse(&v).unwrap_or(self.touch_controls),
                 key if key.starts_with("pad_") => {
@@ -201,7 +205,7 @@ impl Settings {
         text += &format!("window_scale={}\n", self.window_scale);
         text += &format!("hud={}\n", self.hud as u8);
         text += &format!("controller={}\n", self.pad as u8);
-        text += &format!("controller_move={}\n", if self.pad_wasd { "wasd" } else { "arrows" });
+        text += &format!("controller_keys={}\n", match self.pad_wasd { None => "auto", Some(false) => "arrows", Some(true) => "wasd" });
         text += &format!("controller_cursor_speed={}\n", self.pad_speed);
         text += &format!("touch_controls={}
 ", self.touch_controls.name());

@@ -306,22 +306,51 @@ pub fn generate(g: &GameData, title: &str, dir: &Path) -> Vec<(&'static str, Pat
     out
 }
 
+/// Honeycomb of pointy-top hexagons with circumradius `r` at a pixel: how much it is on a
+/// cell edge (0..1, anti-aliased) and whether its cell is one of the few lit ones (0 or 1).
+fn honeycomb(x: f32, y: f32, r: f32) -> (f32, f32) {
+    let s3 = 3f32.sqrt();
+    // Axial coordinates, rounded through cube coordinates to the nearest cell centre.
+    let q = (s3 / 3.0 * x - y / 3.0) / r;
+    let rr = (2.0 / 3.0 * y) / r;
+    let (cx, cz) = (q, rr);
+    let cy = -cx - cz;
+    let (mut rx, ry, mut rz) = (cx.round(), cy.round(), cz.round());
+    let (dx, dy, dz) = ((rx - cx).abs(), (ry - cy).abs(), (rz - cz).abs());
+    if dx > dy && dx > dz {
+        rx = -ry - rz;
+    } else if dy <= dz {
+        rz = -rx - ry;
+    }
+    let (centre_x, centre_y) = (r * s3 * (rx + rz / 2.0), r * 1.5 * rz);
+    let (px, py) = (x - centre_x, y - centre_y);
+    // Distance from the centre in the hexagon's own measure: the inradius at the edges.
+    let n = px.abs().max((0.5 * px + s3 / 2.0 * py).abs()).max((-0.5 * px + s3 / 2.0 * py).abs());
+    let edge = 1.0 - ((r * s3 / 2.0 - n) / 1.6).clamp(0.0, 1.0);
+    let hash = ((rx as i32).wrapping_mul(73_856_093) ^ (rz as i32).wrapping_mul(19_349_663)).rem_euclid(97);
+    (edge, if hash < 6 { 1.0 } else { 0.0 })
+}
+
 /// KlikCore's own library artwork: its icon and name on a dark mint glow (the icon's colour).
 pub fn generate_brand(dir: &Path) -> Vec<(&'static str, PathBuf)> {
     let _ = std::fs::create_dir_all(dir);
     let Some(icon) = super::icon_image() else { return Vec::new() };
     let icon = Canvas { w: icon.width as usize, h: icon.height as usize, px: icon.rgba };
     let text = Text::new();
-    let gradient = |w: usize, h: usize| {
+    // Dark background with a mint glow and a honeycomb of the icon's hexagons, brightest
+    // around the glow; `cell` is the hexagon size (0 = none) and `lit` how strong the lines are.
+    let gradient = |w: usize, h: usize, cell: f32, lit: f32| {
         let mut c = Canvas::new(w, h, [0; 4]);
         for y in 0..h {
             for x in 0..w {
                 let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
                 let glow = (1.0 - ((fx - 0.5).powi(2) + (fy - 0.45).powi(2)).sqrt() * 1.6).max(0.0);
+                let (line, fill) = if cell > 0.0 { honeycomb(x as f32, y as f32, cell) } else { (0.0, 0.0) };
+                let mint = lit * (0.25 + glow) * (line + 0.35 * fill);
                 let i = (y * w + x) * 4;
-                c.px[i] = (16.0 + 10.0 * glow) as u8;
-                c.px[i + 1] = (18.0 + 56.0 * glow) as u8;
-                c.px[i + 2] = (24.0 + 40.0 * glow) as u8;
+                c.px[i] = (16.0 + 10.0 * glow + 60.0 * mint).min(255.0) as u8;
+                c.px[i + 1] = (18.0 + 56.0 * glow + 215.0 * mint).min(255.0) as u8;
+                c.px[i + 2] = (24.0 + 40.0 * glow + 170.0 * mint).min(255.0) as u8;
                 c.px[i + 3] = 255;
             }
         }
@@ -334,19 +363,20 @@ pub fn generate_brand(dir: &Path) -> Vec<(&'static str, PathBuf)> {
             out.push((suffix, p));
         }
     };
-    let mut p = gradient(600, 900);
+    let mut p = gradient(600, 900, 46.0, 0.10);
     p.draw(&icon.scaled(300, 300), 150, 230);
     if let Some(t) = &text {
         t.draw(&mut p, "KlikCore 2", 76.0, 0.0, Some(300.0), 660.0);
     }
     save("p", "portrait.png", &p);
-    let mut w = gradient(920, 430);
+    let mut w = gradient(920, 430, 40.0, 0.10);
     w.draw(&icon.scaled(220, 220), 90, 105);
     if let Some(t) = &text {
         t.draw(&mut w, "KlikCore 2", 88.0, 350.0, None, 250.0);
     }
     save("", "wide.png", &w);
-    save("_hero", "hero.png", &gradient(1920, 620));
+    // The hero is the background of KlikCore's page in Steam (the logo goes over it).
+    save("_hero", "hero.png", &gradient(1920, 620, 64.0, 0.22));
     if let Some(t) = &text {
         let mut l = Canvas::new(560, 150, [0; 4]);
         t.draw(&mut l, "KlikCore 2", 100.0, 0.0, Some(280.0), 115.0);

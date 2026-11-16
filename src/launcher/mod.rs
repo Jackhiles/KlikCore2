@@ -251,7 +251,7 @@ struct Launcher {
     update: Option<update::Release>,
     updating: bool,
     /// Gamepad navigation: selected card, and this frame's button presses.
-    pad: Option<gilrs::Gilrs>,
+    pad: crate::render::pad_source::PadReader,
     pad_held: std::collections::HashSet<gilrs::Button>,
     selected: Option<usize>,
     pad_back: bool,
@@ -341,7 +341,7 @@ impl Launcher {
             config: LauncherConfig::load(),
             update: None,
             updating: false,
-            pad: gilrs::Gilrs::new().ok(),
+            pad: crate::render::pad_source::PadReader::new(),
             pad_held: Default::default(),
             selected: None,
             pad_back: false,
@@ -380,18 +380,16 @@ impl Launcher {
     /// Controller navigation: the D-pad / left stick move through the cover grid, A plays,
     /// Y opens settings, B closes a panel or menu. Returns the action for the selected game.
     fn pad_nav(&mut self) -> Option<(usize, u8)> {
-        use gilrs::{Axis, Button};
+        use gilrs::Button;
         self.pad_back = false;
         self.pad_a = false;
         self.running.retain_mut(|(_, c)| matches!(c.try_wait(), Ok(None)));
         let game_running = !self.running.is_empty();
-        let g = self.pad.as_mut()?;
-        while g.next_event().is_some() {}
-        let (_, p) = g.gamepads().find(|(_, p)| p.is_connected())?;
-        let (lx, ly) = (p.value(Axis::LeftStickX), p.value(Axis::LeftStickY));
+        let p = self.pad.poll()?;
+        let (lx, ly) = (p.left.x, p.left.y);
         let mut now = std::collections::HashSet::new();
         for b in [Button::DPadUp, Button::DPadDown, Button::DPadLeft, Button::DPadRight, Button::South, Button::East, Button::North] {
-            if p.is_pressed(b) {
+            if p.pressed(b) {
                 now.insert(b);
             }
         }
@@ -838,12 +836,24 @@ impl Launcher {
     /// On start: make sure Steam has a shortcut to KlikCore. Added quietly when Steam is
     /// closed; when it's open (adding means restarting it) the status bar asks first.
     fn check_steam_shortcut(&self) {
-        if !self.has_steam || self.config.steam_self_never || update::is_dev_build() || steam_shortcuts::in_gaming_mode() {
+        if !self.has_steam || update::is_dev_build() {
             return;
         }
         let tx = self.tx.clone();
+        let offer = !self.config.steam_self_never && !steam_shortcuts::in_gaming_mode();
         std::thread::spawn(move || {
-            if steam_shortcuts::has_launcher_shortcut() || steam_shortcuts::user_config_dir().is_none() {
+            if steam_shortcuts::user_config_dir().is_none() {
+                return;
+            }
+            if steam_shortcuts::has_launcher_shortcut() {
+                // In gaming mode too: Steam is always open there, so only the artwork.
+                let open = steam_shortcuts::in_gaming_mode() || steam_shortcuts::steam_running();
+                if let Some(msg) = steam_shortcuts::refresh_launcher(open) {
+                    let _ = tx.send(Msg::Done(msg));
+                }
+                return;
+            }
+            if !offer {
                 return;
             }
             if steam_shortcuts::steam_running() {

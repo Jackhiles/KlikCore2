@@ -12,8 +12,9 @@ fallback: ANDROID_HOME / ANDROID_SDK_ROOT (SDK), ANDROID_NDK_HOME / ANDROID_NDK_
 ANDROID_NDK_LATEST_HOME (NDK; default: the newest under <sdk>/ndk), JAVA_HOME (javac,
 keytool), CARGO (cargo).
 
-Signing: a debug keystore is made in target/android/ on first use. To sign with your
-own key set KLIKCORE_KEYSTORE, KLIKCORE_KEYSTORE_PASS and KLIKCORE_KEY_ALIAS.
+Signing: KLIKCORE_KEYSTORE / KLIKCORE_KEYSTORE_PASS / KLIKCORE_KEY_ALIAS if set, else the
+release key in ~/.klikcore-signing (release.keystore + password.txt, alias "klikcore") if
+present, else a debug keystore made in target/android/ on first use.
 """
 
 import argparse
@@ -436,6 +437,11 @@ def ensure_keystore(keytool, out):
             os.environ.get("KLIKCORE_KEYSTORE_PASS") or "",
             os.environ.get("KLIKCORE_KEY_ALIAS") or "klikcore",
         )
+    # The release key, if this machine has it (kept outside the repo), so local builds
+    # update the same app as the published ones.
+    home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~").expanduser() / ".klikcore-signing"
+    if (home / "release.keystore").is_file() and (home / "password.txt").is_file():
+        return home / "release.keystore", (home / "password.txt").read_text().strip(), "klikcore"
     ks = out / "debug.keystore"
     if not ks.is_file():
         run([
@@ -527,8 +533,10 @@ def main():
     apk = out / name
     run([exe(build_tools / "zipalign"), "-f", "-P", "16", "4", unaligned, apk])
     ks, ks_pass, alias = ensure_keystore(keytool, out)
-    run([exe(build_tools / "apksigner"), "sign", "--ks", ks, "--ks-pass", f"pass:{ks_pass}",
-         "--ks-key-alias", alias, "--key-pass", f"pass:{ks_pass}", apk])
+    # The password goes through the environment so the echoed command doesn't show it.
+    env = dict(os.environ, KLIKCORE_SIGN_PASS=ks_pass)
+    run([exe(build_tools / "apksigner"), "sign", "--ks", ks, "--ks-pass", "env:KLIKCORE_SIGN_PASS",
+         "--ks-key-alias", alias, "--key-pass", "env:KLIKCORE_SIGN_PASS", apk], env=env)
     run([exe(build_tools / "apksigner"), "verify", apk])
     for f in (base, unaligned):
         f.unlink(missing_ok=True)

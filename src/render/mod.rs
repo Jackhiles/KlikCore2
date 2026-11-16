@@ -2,9 +2,11 @@
 //! placed objects at their starting positions. No game logic runs yet.
 
 pub mod audio_out;
+mod borderless;
 mod hud;
 pub mod scene;
 pub mod gamepad;
+pub mod pad_source;
 pub mod settings;
 pub mod text;
 pub mod touch;
@@ -985,7 +987,8 @@ impl Viewer {
         let (origin, size) = self.present();
         let view = self.view_size();
         let scroll = self.current_scroll();
-        self.pad.apply(&mut self.input, view, |p| (p - origin) / (size / view), scroll);
+        let frame = self.rt.frame_index;
+        self.pad.apply(&mut self.input, frame, view, |p| (p - origin) / (size / view), scroll);
     }
 
     /// Debug keys. Function keys and Ctrl combinations are reserved for the viewer;
@@ -1227,11 +1230,15 @@ impl Viewer {
         if on == self.fullscreen {
             return;
         }
-        set_fullscreen(on);
-        if !on {
-            // Back to the normal window size.
-            let conf = window_conf(&self.rt.game, &self.settings);
-            request_new_screen_size(conf.window_width as f32, conf.window_height as f32);
+        // Borderless fullscreen on the window's own monitor where we can (Windows);
+        // otherwise miniquad's.
+        if !borderless::set_fullscreen(on) {
+            set_fullscreen(on);
+            if !on {
+                // Back to the normal window size.
+                let conf = window_conf(&self.rt.game, &self.settings);
+                request_new_screen_size(conf.window_width as f32, conf.window_height as f32);
+            }
         }
         self.fullscreen = on;
     }
@@ -1385,6 +1392,7 @@ impl Viewer {
             self.pad.draw_cursor(o + c * (size / self.view_size()));
         }
         self.touch.draw(self.hud_font.as_ref());
+        self.pad.draw_legend(self.hud_font.as_ref());
         self.draw_hud();
         self.textures.end_frame();
     }
@@ -1796,7 +1804,8 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
     // Screenshot / scripted runs are tests: start from no saves, not the player's real ones.
     rt.files.isolated = opts.screenshot.is_some();
     let save_root = rt.files.save_root.clone();
-    let touch = touch::TouchControls::new(&rt.game, &opts.settings);
+    let controls = touch::GameControls::analyse(&rt.game);
+    let touch = touch::TouchControls::new(&rt.game, &controls, &opts.settings);
     let mut v = Viewer {
         last_window_mouse: None,
         shown_frame: rt.frame_log.len(),
@@ -1834,7 +1843,7 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         logged_unimplemented: 0,
         notice: None,
         failed_ticks: 0,
-        pad: gamepad::Gamepad::new(&opts.settings),
+        pad: gamepad::Gamepad::new(&opts.settings, &controls),
         touch,
     };
     // Replacement packs for this game.

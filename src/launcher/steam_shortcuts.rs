@@ -296,13 +296,20 @@ pub fn install_art(config_dir: &Path, shortcut_id: u32, art: &[(&str, PathBuf)])
 
 /// Does Steam already have a shortcut that opens this KlikCore (the launcher, no game)?
 pub fn has_launcher_shortcut() -> bool {
-    let Ok(exe) = super::update::program_path() else { return true };
-    let exe = quoted(&exe);
-    let Some(file) = user_config_dir().map(|d| d.join("shortcuts.vdf")) else { return false };
-    let Some(root) = std::fs::read(file).ok().and_then(|b| parse(&b)) else { return false };
-    let Some((_, Value::Map(list))) = root.iter().find(|(k, _)| k.eq_ignore_ascii_case("shortcuts")) else { return false };
-    list.iter().any(|(_, v)| {
-        let Value::Map(m) = v else { return false };
+    if super::update::program_path().is_err() {
+        return true;
+    }
+    launcher_shortcut().is_some()
+}
+
+/// Steam's shortcut to KlikCore itself, if there is one: its app id and name.
+fn launcher_shortcut() -> Option<(u32, String)> {
+    let exe = quoted(&super::update::program_path().ok()?);
+    let file = user_config_dir()?.join("shortcuts.vdf");
+    let root = std::fs::read(file).ok().and_then(|b| parse(&b))?;
+    let Some((_, Value::Map(list))) = root.iter().find(|(k, _)| k.eq_ignore_ascii_case("shortcuts")) else { return None };
+    list.iter().find_map(|(_, v)| {
+        let Value::Map(m) = v else { return None };
         let get = |key: &str| {
             m.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).and_then(|(_, v)| match v {
                 Value::Str(s) => Some(s.trim().to_string()),
@@ -311,8 +318,40 @@ pub fn has_launcher_shortcut() -> bool {
         };
         // Steam itself may store the path with or without quotes.
         let e = get("Exe").unwrap_or_default();
-        (e == exe || format!("\"{e}\"") == exe) && get("LaunchOptions").unwrap_or_default().is_empty()
+        if !((e == exe || format!("\"{e}\"") == exe) && get("LaunchOptions").unwrap_or_default().is_empty()) {
+            return None;
+        }
+        let name = get("appname").unwrap_or_default();
+        let id = m.iter().find(|(k, _)| k.eq_ignore_ascii_case("appid")).and_then(|(_, v)| match v {
+            Value::Int(i) => Some(*i),
+            _ => None,
+        });
+        Some((id.unwrap_or_else(|| shortcut_app_id(&e, &name)), name))
     })
+}
+
+/// Bump when KlikCore's own Steam artwork changes, so existing shortcuts get the new one.
+const BRAND_ART_VERSION: &str = "2";
+
+/// Keep KlikCore's own shortcut up to date: an old one (made under the Rekindle name) is
+/// renamed when Steam is closed, and its artwork is replaced when ours is newer. Artwork
+/// files don't need Steam closed. Returns a message when something changed.
+pub fn refresh_launcher(steam_open: bool) -> Option<String> {
+    let (id, name) = launcher_shortcut()?;
+    if name != "KlikCore 2" && !steam_open {
+        return add_launcher(false, |_| {}).ok().map(|_| "Updated KlikCore's Steam shortcut.".to_string());
+    }
+    let dir = super::library::data_dir().join("steam").join("klikcore");
+    let stamp = dir.join("art-version.txt");
+    if std::fs::read_to_string(&stamp).ok().as_deref() == Some(BRAND_ART_VERSION) {
+        return None;
+    }
+    let art = super::art::generate_brand(&dir);
+    let n = install_art(&user_config_dir()?, id, &art);
+    if n > 0 {
+        let _ = std::fs::write(&stamp, BRAND_ART_VERSION);
+    }
+    None
 }
 
 /// Add KlikCore itself (the launcher) to Steam, with artwork made from its icon.
@@ -325,6 +364,7 @@ pub fn add_launcher(may_restart: bool, progress: impl Fn(&str)) -> Result<String
     let art = super::art::generate_brand(&dir);
     let shortcut = Shortcut { name: "KlikCore 2".into(), exe, game: None, icon };
     write_with_restart(&shortcut, &art, may_restart, progress)?;
+    let _ = std::fs::write(dir.join("art-version.txt"), BRAND_ART_VERSION);
     Ok("Added KlikCore to Steam.".into())
 }
 

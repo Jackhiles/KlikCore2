@@ -164,18 +164,19 @@ impl Launcher {
         }
         p.y += SECTION_GAP;
 
-        let controller_h = 3.0 * ROW_H + stack_extra(self, &["Arrow keys", "W A S D"]) + stack_extra(self, &["Slow", "Normal", "Fast"]);
+        let controller_h = 3.0 * ROW_H + stack_extra(self, &["Automatic", "Arrow keys", "W A S D"]) + stack_extra(self, &["Slow", "Normal", "Fast"]);
         self.section_title(&mut p, "CONTROLLER");
         self.card_behind(p.x, p.y, p.w, p.y + controller_h);
         if let Some(k) = self.setting(&mut p, true, "Controller", "Play with a gamepad: buttons press keys, a stick moves the mouse", &["Off", "On"], s.pad as usize) {
             s.pad = k == 1;
             changed = true;
         }
-        if let Some(k) = self.setting(&mut p, false, "Stick moves with", "Which keys the left stick and D-pad press", &["Arrow keys", "W A S D"], s.pad_wasd as usize) {
-            s.pad_wasd = k == 1;
+        let move_k = match s.pad_wasd { None => 0, Some(false) => 1, Some(true) => 2 };
+        if let Some(k) = self.setting(&mut p, false, "Stick moves with", "Which keys the left stick and D-pad press (Automatic: the game's own)", &["Automatic", "Arrow keys", "W A S D"], move_k) {
+            s.pad_wasd = [None, Some(false), Some(true)][k.min(2)];
             changed = true;
         }
-        if let Some(k) = self.setting(&mut p, false, "Cursor speed", "Right stick mouse cursor (RT / RB click)", &["Slow", "Normal", "Fast"], (s.pad_speed.clamp(1, 3) - 1) as usize) {
+        if let Some(k) = self.setting(&mut p, false, "Cursor speed", "Right stick mouse cursor (RT click, LT right-click)", &["Slow", "Normal", "Fast"], (s.pad_speed.clamp(1, 3) - 1) as usize) {
             s.pad_speed = k as u8 + 1;
             changed = true;
         }
