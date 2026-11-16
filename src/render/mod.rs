@@ -1422,7 +1422,9 @@ impl Viewer {
             self.pad.draw_cursor(o + c * (size / self.view_size()));
         }
         self.touch.draw(self.hud_font.as_ref());
-        self.pad.draw_legend(self.hud_font.as_ref());
+        if self.settings.pad_legend {
+            self.pad.draw_legend(self.hud_font.as_ref());
+        }
         self.draw_hud();
         self.textures.end_frame();
     }
@@ -1898,7 +1900,12 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         _presence: None,
     };
     // Replacement packs for this game.
-    let mods = std::sync::Arc::new(crate::mods::Mods::load(opts.game_path.as_deref().unwrap_or(&v.rt.game.path)));
+    let mods = std::sync::Arc::new(if opts.settings.mods {
+        crate::mods::Mods::load(opts.game_path.as_deref().unwrap_or(&v.rt.game.path))
+    } else {
+        crate::mods::Mods::default()
+    });
+    v.audio.set_volume(opts.settings.volume);
     if !mods.is_empty() {
         v.log.line(&format!(
             "mods: {} images, {} sounds from {}",

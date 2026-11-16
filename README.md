@@ -105,7 +105,7 @@ games (also `klikcore --add FILE_OR_FOLDER`) or Steam games; the **...** menu ha
 folder. A game's own **...** menu has Add to Steam, Desktop shortcut (also `klikcore GAME --shortcut`), Mods folder,
 Open game folder and Remove from library (the files are untouched). Double-click a cover to play. When a game runs another program (launchers that start the real game), a Clickteam game opens in a new KlikCore window; on Windows other programs start as they would with the original runtime. Only one copy
 of a game runs at a time, and while a game started from the launcher is running, the launcher ignores the controller.
-`KLIKCORE_LAUNCHER_SHOT=file.png` saves the launcher window once artwork has loaded and exits (for testing; `KLIKCORE_LAUNCHER_PAGE=settings|steam|log` opens a page first).
+`KLIKCORE_LAUNCHER_SHOT=file.png` saves the launcher window once artwork has loaded and exits (for testing; `KLIKCORE_LAUNCHER_PAGE=settings|steam|log|devices|app` opens a page first).
 
 **Steam** (shown when Steam is installed; also `klikcore GAME --add-to-steam`) adds the game to Steam as a non-Steam
 shortcut that starts it with KlikCore, with the game's icon. If the game is or was a Steam game (installed through
@@ -261,7 +261,11 @@ answers.
 - **Per-game settings** (launcher: **Settings** on a game; stored in `%APPDATA%\KlikCore\settings\<game>.ini`):
   fullscreen (game default / on / off), window size (auto, 1x-3x), scaling (fit keeps the shape, integer keeps pixels
   crisp, stretch fills the window), upscaling filter (sharp pixels, smooth, enhanced bicubic, HD: bicubic with halo-free edge sharpening for drawn art, or pixel art: Scale2x-style diagonal smoothing), and whether the debug
-  HUD shows at start. In game: F9 cycles the filter, F10 the scaling, F11 / Alt+Enter toggles fullscreen.
+  HUD shows at start; volume (off, 25-100%); controller options and its button guide; and whether the game's mods
+  and AI upscale packs are used. In game: F9 cycles the filter, F10 the scaling, F11 / Alt+Enter toggles fullscreen.
+- **Launcher settings** (the **⋮** menu, **Settings**; stored in `launcher.ini`): update check, interface size
+  (100-175%), Discord status, whether to offer adding KlikCore to Steam, and **game defaults**: the display, sound and
+  controller settings that games without their own settings start from (`game-defaults.ini`).
 - **Errors**: if something inside the game logic fails, the tick is skipped, a red notice appears and the details go to
   `klikcore.log` in the save folder; the game pauses after repeated failures. Unsupported features hit during play are
   logged there too, which makes the file useful for bug reports.

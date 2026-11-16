@@ -111,6 +111,12 @@ pub struct Settings {
     pub pad_map: Vec<(String, String)>,
     /// On-screen touch controls (Android, or desktop with KLIKCORE_TOUCH_CONTROLS=1).
     pub touch_controls: TouchMode,
+    /// Sound volume, 0-100.
+    pub volume: u8,
+    /// Use the game's mods and AI upscale packs.
+    pub mods: bool,
+    /// Show the controller's button legend.
+    pub pad_legend: bool,
     path: Option<PathBuf>,
 }
 
@@ -127,6 +133,9 @@ impl Default for Settings {
             pad_speed: 2,
             pad_map: Vec::new(),
             touch_controls: TouchMode::Auto,
+            volume: 100,
+            mods: true,
+            pad_legend: true,
             path: None,
         }
     }
@@ -140,11 +149,27 @@ impl Settings {
         crate::runtime::files::data_root().join("settings").join(format!("{}.ini", safe.trim()))
     }
 
+    /// The settings games start from until they have their own (set in the launcher).
+    pub fn defaults_path() -> PathBuf {
+        crate::runtime::files::data_root().join("game-defaults.ini")
+    }
+
+    /// The defaults for games, to edit (saved to `defaults_path`).
+    pub fn defaults() -> Self {
+        let mut s = Self::default();
+        if let Ok(text) = std::fs::read_to_string(Self::defaults_path()) {
+            s.apply(&text);
+        }
+        s.path = Some(Self::defaults_path());
+        s
+    }
+
     /// Load a game's settings. `legacy_dir` is the game's save folder, where older versions
-    /// kept `klikcore.ini`; it is read if the new file doesn't exist yet.
+    /// kept `klikcore.ini`; it is read if the new file doesn't exist yet. A game without
+    /// its own settings starts from the defaults.
     pub fn for_game(game: &Path, legacy_dir: Option<&Path>) -> Self {
         let path = Self::path_for(game);
-        let mut s = Self { path: Some(path.clone()), ..Self::default() };
+        let mut s = Self { path: Some(path.clone()), ..Self::defaults() };
         let text = std::fs::read_to_string(&path)
             .ok()
             .or_else(|| legacy_dir.and_then(|d| std::fs::read_to_string(d.join("klikcore.ini")).ok()));
@@ -158,8 +183,7 @@ impl Settings {
     /// run (written back only if the player changes a setting in game).
     pub fn with_env_overrides(mut self) -> Self {
         if let Ok(o) = std::env::var("KLIKCORE_SETTINGS") {
-            self.apply(&o.replace(';', "
-"));
+            self.apply(&o.replace(';', "\n"));
         }
         self
     }
@@ -184,6 +208,9 @@ impl Settings {
                 "controller_keys" => self.pad_wasd = match v.as_str() { "wasd" => Some(true), "arrows" => Some(false), _ => None },
                 "controller_cursor_speed" => self.pad_speed = v.parse::<u8>().unwrap_or(2).clamp(1, 3),
                 "touch_controls" => self.touch_controls = TouchMode::parse(&v).unwrap_or(self.touch_controls),
+                "volume" => self.volume = v.parse::<u8>().unwrap_or(100).min(100),
+                "mods" => self.mods = on,
+                "controller_legend" => self.pad_legend = on,
                 key if key.starts_with("pad_") => {
                     let button = key[4..].to_string();
                     self.pad_map.retain(|(b, _)| *b != button);
@@ -207,8 +234,10 @@ impl Settings {
         text += &format!("controller={}\n", self.pad as u8);
         text += &format!("controller_keys={}\n", match self.pad_wasd { None => "auto", Some(false) => "arrows", Some(true) => "wasd" });
         text += &format!("controller_cursor_speed={}\n", self.pad_speed);
-        text += &format!("touch_controls={}
-", self.touch_controls.name());
+        text += &format!("touch_controls={}\n", self.touch_controls.name());
+        text += &format!("volume={}\n", self.volume);
+        text += &format!("mods={}\n", self.mods as u8);
+        text += &format!("controller_legend={}\n", self.pad_legend as u8);
         for (b, v) in &self.pad_map {
             text += &format!("pad_{b}={v}\n");
         }
@@ -239,8 +268,12 @@ mod tests {
         s.window_scale = 2;
         s.hud = true;
         s.touch_controls = TouchMode::Off;
+        s.volume = 40;
+        s.mods = false;
+        s.pad_legend = false;
         let mut t = Settings::default();
         t.apply(&s.to_text());
+        assert_eq!((t.volume, t.mods, t.pad_legend), (40, false, false));
         assert_eq!((t.fullscreen, t.filter, t.scaling, t.window_scale, t.hud), (Some(true), Filter::Enhanced, Scaling::Integer, 2, true));
         assert_eq!(t.touch_controls, TouchMode::Off);
         assert_eq!(Settings::default().touch_controls, TouchMode::Auto);

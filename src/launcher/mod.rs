@@ -101,12 +101,20 @@ pub(crate) fn ui_scale() -> f32 {
     if let Some(s) = std::env::var("KLIKCORE_UI_SCALE").ok().and_then(|v| v.parse::<f32>().ok()) {
         return s.clamp(0.5, 4.0);
     }
-    if cfg!(target_os = "android") {
+    let base = if cfg!(target_os = "android") {
         (screen_width().min(screen_height()) / 432.0).clamp(1.0, 3.0)
     } else {
         1.0
-    }
+    };
+    // The "Interface size" setting (percent; 100 = automatic).
+    base * UI_SIZE.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0
 }
+
+/// The launcher's "Interface size" setting, in percent.
+static UI_SIZE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+/// Interface sizes offered in Settings (percent).
+const UI_SIZES: [u32; 4] = [100, 125, 150, 175];
 
 /// Screen size and pointer in interface units.
 pub(crate) fn sw() -> f32 {
@@ -173,6 +181,10 @@ struct LauncherConfig {
     steam_self_never: bool,
     /// Show the game being played in Discord (Rich Presence).
     discord: bool,
+    /// Look for a newer KlikCore when the launcher opens.
+    update_check: bool,
+    /// Interface size in percent (one of `UI_SIZES`).
+    ui_size: u32,
 }
 
 impl LauncherConfig {
@@ -181,7 +193,14 @@ impl LauncherConfig {
     }
 
     fn load() -> Self {
-        let mut c = Self { steam_copy: false, storage: library::games_storage_dir(), steam_self_never: false, discord: true };
+        let mut c = Self {
+            steam_copy: false,
+            storage: library::games_storage_dir(),
+            steam_self_never: false,
+            discord: true,
+            update_check: true,
+            ui_size: 100,
+        };
         if let Ok(text) = std::fs::read_to_string(Self::file()) {
             for line in text.lines() {
                 match line.split_once('=') {
@@ -189,21 +208,27 @@ impl LauncherConfig {
                     Some(("storage", v)) if !v.trim().is_empty() => c.storage = PathBuf::from(v.trim()),
                     Some(("add_self_to_steam", v)) => c.steam_self_never = v.trim() == "never",
                     Some(("discord", v)) => c.discord = v.trim() != "off",
+                    Some(("update_check", v)) => c.update_check = v.trim() != "off",
+                    Some(("ui_size", v)) => c.ui_size = v.trim().parse::<u32>().ok().filter(|s| UI_SIZES.contains(s)).unwrap_or(100),
                     _ => {}
                 }
             }
         }
+        UI_SIZE.store(c.ui_size, std::sync::atomic::Ordering::Relaxed);
         c
     }
 
     fn save(&self) {
         let text = format!(
-            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\ndiscord={}\n",
+            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\ndiscord={}\nupdate_check={}\nui_size={}\n",
             if self.steam_copy { "copy" } else { "link" },
             self.storage.display(),
             if self.steam_self_never { "never" } else { "ask" },
-            if self.discord { "on" } else { "off" }
+            if self.discord { "on" } else { "off" },
+            if self.update_check { "on" } else { "off" },
+            self.ui_size
         );
+        UI_SIZE.store(self.ui_size, std::sync::atomic::Ordering::Relaxed);
         let _ = std::fs::create_dir_all(library::data_dir());
         let _ = std::fs::write(Self::file(), text);
     }
@@ -250,6 +275,8 @@ struct Launcher {
     /// Settings panel save row: cached status line, and a copy waiting for a second click.
     saves_status: Option<(usize, String)>,
     saves_confirm: Option<crate::runtime::save_sync::Direction>,
+    /// The Settings page is open: the game defaults being edited.
+    app_settings: Option<Settings>,
     /// The Steam games panel is open.
     steam_panel: bool,
     steam_lines: Vec<String>,
@@ -345,6 +372,7 @@ impl Launcher {
             settings_panel: None,
             saves_status: None,
             saves_confirm: None,
+            app_settings: None,
             steam_panel: false,
             steam_lines: Vec::new(),
             config: LauncherConfig::load(),
@@ -441,7 +469,7 @@ impl Launcher {
     fn start_update_check(&self) {
         update::cleanup();
         // Android updates come as a new APK, not a replaced program file.
-        if update::is_dev_build() || std::env::var_os("KLIKCORE_NO_UPDATE_CHECK").is_some() {
+        if update::is_dev_build() || !self.config.update_check || std::env::var_os("KLIKCORE_NO_UPDATE_CHECK").is_some() {
             return;
         }
         let tx = self.tx.clone();
@@ -759,6 +787,8 @@ impl Launcher {
             self.draw_log(top, sh - STATUS_H);
         } else if self.devices_page {
             self.draw_devices_page(top);
+        } else if self.app_settings.is_some() {
+            self.draw_app_settings(top);
         } else {
             self.draw_library(sw, sh, pad_action);
         }
@@ -900,7 +930,7 @@ pub async fn run() {
     l.scan_game_folders();
     // Testing: KLIKCORE_LAUNCHER_SHOT=<file.png> saves the window once artwork has loaded
     // (or after 20 s), then exits. KLIKCORE_LAUNCHER_SELECT=<n> selects the n-th game,
-    // KLIKCORE_LAUNCHER_PAGE=settings|steam|log|devices opens that page.
+    // KLIKCORE_LAUNCHER_PAGE=settings|steam|log|devices|app opens that page.
     let shot = std::env::var_os("KLIKCORE_LAUNCHER_SHOT").map(PathBuf::from);
     if let Some(n) = std::env::var("KLIKCORE_LAUNCHER_SELECT").ok().and_then(|v| v.parse::<usize>().ok()) {
         l.selected = Some(n);
@@ -910,6 +940,7 @@ pub async fn run() {
         Ok("steam") => l.steam_panel = true,
         Ok("log") => l.show_log = true,
         Ok("devices") => l.devices_page = true,
+        Ok("app") => l.app_settings = Some(Settings::defaults()),
         _ => {}
     }
     let started = get_time();

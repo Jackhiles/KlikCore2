@@ -32,6 +32,8 @@ struct Mix {
     voices: Vec<Voice>,
     /// Ctrl+M in the viewer: mix silence (sounds keep their place).
     muted: bool,
+    /// The player's volume setting (0-1), applied to everything.
+    master: f32,
     /// The mixed stereo frames of the current callback.
     scratch: Vec<f32>,
 }
@@ -120,8 +122,9 @@ where
             let frames = data.len() / ch;
             let Ok(mut m) = mix.lock() else { return };
             m.render(frames);
-            if m.muted {
-                m.scratch.iter_mut().for_each(|s| *s = 0.0);
+            let gain = if m.muted { 0.0 } else { m.master };
+            if gain != 1.0 {
+                m.scratch.iter_mut().for_each(|s| *s *= gain);
             }
             for (f, out) in data.chunks_exact_mut(ch).enumerate() {
                 let (l, r) = (m.scratch[f * 2].clamp(-1.0, 1.0), m.scratch[f * 2 + 1].clamp(-1.0, 1.0));
@@ -204,7 +207,7 @@ fn feed(handle: u32, bytes: Arc<[u8]>, rate: u32, start_ms: f64, looped: bool, o
 impl AudioOut {
     pub fn new(enabled: bool) -> Self {
         let (tx, rx) = channel();
-        let mix = Arc::new(Mutex::new(Mix::default()));
+        let mix = Arc::new(Mutex::new(Mix { master: 1.0, ..Mix::default() }));
         let (stream, rate) = if enabled {
             match open_device(mix.clone()) {
                 Ok((s, r)) => (Some(s), r),
@@ -225,6 +228,11 @@ impl AudioOut {
 
     pub fn set_muted(&self, on: bool) {
         self.with_mix(|m| m.muted = on);
+    }
+
+    /// Overall volume, 0-100.
+    pub fn set_volume(&self, percent: u8) {
+        self.with_mix(|m| m.master = percent.min(100) as f32 / 100.0);
     }
 
     /// Sounds currently playing.

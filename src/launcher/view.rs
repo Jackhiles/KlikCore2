@@ -19,7 +19,7 @@ pub(super) enum MenuAction {
     GameFolder(usize),
     RefreshArt(usize),
     Upscale(usize, super::upscale::Style),
-    Discord,
+    AppSettings,
     RemoveUpscale(usize),
     Remove(usize),
 }
@@ -119,10 +119,7 @@ impl Launcher {
             if self.sync.is_some() {
                 items.insert(0, ("Devices and sync", MenuAction::Devices));
             }
-            // Discord status (only when Rich Presence is set up in this build).
-            if crate::discord::available() {
-                items.push((if self.config.discord { "Discord status: on" } else { "Discord status: off" }, MenuAction::Discord));
-            }
+            items.push(("Settings", MenuAction::AppSettings));
             self.open_menu(menu_btn.x + menu_btn.w, menu_btn.y + menu_btn.h + 6.0, items, true);
         }
         if self.button(add_btn, "     Add", true, idle) {
@@ -197,7 +194,7 @@ impl Launcher {
 
     /// The library screen is showing (no panel open).
     pub(super) fn library_view(&self) -> bool {
-        self.steam_confirm.is_none() && !self.steam_panel && self.settings_panel.is_none() && !self.show_log && !self.devices_page
+        self.steam_confirm.is_none() && !self.steam_panel && self.settings_panel.is_none() && !self.show_log && !self.devices_page && self.app_settings.is_none()
     }
 
     fn open_menu(&mut self, right: f32, y: f32, items: Vec<(&'static str, MenuAction)>, align_right: bool) {
@@ -567,6 +564,7 @@ impl Launcher {
                 self.devices_page = false;
                 self.steam_panel = true;
                 self.settings_panel = None;
+                self.app_settings = None;
                 self.show_log = false;
             }
             MenuAction::PlayLog => {
@@ -574,6 +572,7 @@ impl Launcher {
                 self.show_log = true;
                 self.steam_panel = false;
                 self.settings_panel = None;
+                self.app_settings = None;
                 self.scroll = 0.0;
             }
             MenuAction::DataFolder => self.open_data_folder(),
@@ -585,6 +584,7 @@ impl Launcher {
                 self.remote_games_for = None;
                 self.steam_panel = false;
                 self.settings_panel = None;
+                self.app_settings = None;
                 self.show_log = false;
                 self.scroll = 0.0;
             }
@@ -640,10 +640,14 @@ impl Launcher {
                     let _ = tx.send(Msg::Upscaled(r.unwrap_or_else(|e| format!("AI upscale failed: {e}"))));
                 });
             }
-            MenuAction::Discord => {
-                self.config.discord = !self.config.discord;
-                self.config.save();
-                self.say(if self.config.discord { "Games will show in your Discord status." } else { "Games won't show in your Discord status." });
+            MenuAction::AppSettings => {
+                self.devices_page = false;
+                self.steam_panel = false;
+                self.settings_panel = None;
+                self.app_settings = None;
+                self.show_log = false;
+                self.app_settings = Some(Settings::defaults());
+                self.scroll = 0.0;
             }
             MenuAction::RemoveUpscale(i) => {
                 let path = self.entries[i].path.clone();
