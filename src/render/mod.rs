@@ -806,6 +806,8 @@ struct Viewer {
     pad: gamepad::Gamepad,
     /// On-screen controls for touch screens.
     touch: touch::TouchControls,
+    /// Discord status while the game runs (cleared when it's dropped).
+    _presence: Option<crate::discord::Presence>,
 }
 
 /// Consecutive failing ticks before the game is paused.
@@ -1860,6 +1862,7 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         failed_ticks: 0,
         pad: gamepad::Gamepad::new(&opts.settings, &controls),
         touch,
+        _presence: None,
     };
     // Replacement packs for this game.
     let mods = std::sync::Arc::new(crate::mods::Mods::load(opts.game_path.as_deref().unwrap_or(&v.rt.game.path)));
@@ -1885,8 +1888,16 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         let g = &v.rt.game;
         let line = format!("started \"{}\" (runtime {:#x}, build {})", g.name, g.runtime_version, g.product_build);
         v.log.line(&line);
+        // Discord: the game's title, and its icon when it's a Steam game (Discord needs a
+        // public picture; other games show KlikCore's icon).
+        let path = opts.game_path.clone().unwrap_or_else(|| g.path.clone());
+        let title = if g.name.trim().is_empty() { path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default() } else { g.name.clone() };
+        let image = crate::launcher::steam_shortcuts::steam_app_for(&path).and_then(|id| crate::launcher::steam_shortcuts::steam_icon_url(&id));
+        let start = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        let presence = crate::discord::start(crate::discord::Activity { details: title, start, image });
         let want = opts.fullscreen.or(v.settings.fullscreen).unwrap_or(g.header.fullscreen_at_start());
         v.set_fullscreen(want);
+        v._presence = presence;
     }
     for &l in &opts.hidden_layers {
         if let Some(off) = v.layer_off.get_mut(l) {

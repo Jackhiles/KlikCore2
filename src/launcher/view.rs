@@ -19,6 +19,7 @@ pub(super) enum MenuAction {
     GameFolder(usize),
     RefreshArt(usize),
     Upscale(usize, super::upscale::Style),
+    Discord,
     RemoveUpscale(usize),
     Remove(usize),
 }
@@ -117,6 +118,10 @@ impl Launcher {
             };
             if self.sync.is_some() {
                 items.insert(0, ("Devices and sync", MenuAction::Devices));
+            }
+            // Discord status (only when Rich Presence is set up in this build).
+            if crate::discord::available() {
+                items.push((if self.config.discord { "Discord status: on" } else { "Discord status: off" }, MenuAction::Discord));
             }
             self.open_menu(menu_btn.x + menu_btn.w, menu_btn.y + menu_btn.h + 6.0, items, true);
         }
@@ -634,6 +639,11 @@ impl Launcher {
                     });
                     let _ = tx.send(Msg::Upscaled(r.unwrap_or_else(|e| format!("AI upscale failed: {e}"))));
                 });
+            }
+            MenuAction::Discord => {
+                self.config.discord = !self.config.discord;
+                self.config.save();
+                self.say(if self.config.discord { "Games will show in your Discord status." } else { "Games won't show in your Discord status." });
             }
             MenuAction::RemoveUpscale(i) => {
                 let path = self.entries[i].path.clone();

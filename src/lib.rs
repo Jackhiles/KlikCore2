@@ -6,6 +6,7 @@ pub mod audio;
 pub mod fxhash;
 /// Format parser. Has no rendering dependencies.
 pub mod ctf_loader;
+pub mod discord;
 /// The game library / launcher shown when no game is given.
 pub mod launcher;
 /// Replacement packs (mods) for images and sounds.

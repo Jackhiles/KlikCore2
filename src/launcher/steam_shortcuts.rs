@@ -280,6 +280,23 @@ pub fn steam_art(app_id: &str) -> Vec<(&'static str, PathBuf)> {
     out
 }
 
+/// A Steam game's icon on Steam's servers (for Discord). Steam's cache names the icon after
+/// its hash (`librarycache/<id>/<40 hex digits>.jpg`), which is also its public address.
+pub fn steam_icon_url(app_id: &str) -> Option<String> {
+    for root in steam::steam_roots() {
+        let dir = root.join("appcache").join("librarycache").join(app_id);
+        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if let Some(hash) = name.strip_suffix(".jpg") {
+                if hash.len() == 40 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Some(format!("https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/{app_id}/{hash}.jpg"));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Copy artwork into the grid folder under the shortcut's id. Returns how many were copied.
 pub fn install_art(config_dir: &Path, shortcut_id: u32, art: &[(&str, PathBuf)]) -> usize {
     let grid = config_dir.join("grid");

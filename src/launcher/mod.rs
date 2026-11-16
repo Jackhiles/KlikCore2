@@ -171,6 +171,8 @@ struct LauncherConfig {
     storage: PathBuf,
     /// Don't offer to add KlikCore itself to Steam.
     steam_self_never: bool,
+    /// Show the game being played in Discord (Rich Presence).
+    discord: bool,
 }
 
 impl LauncherConfig {
@@ -179,13 +181,14 @@ impl LauncherConfig {
     }
 
     fn load() -> Self {
-        let mut c = Self { steam_copy: false, storage: library::games_storage_dir(), steam_self_never: false };
+        let mut c = Self { steam_copy: false, storage: library::games_storage_dir(), steam_self_never: false, discord: true };
         if let Ok(text) = std::fs::read_to_string(Self::file()) {
             for line in text.lines() {
                 match line.split_once('=') {
                     Some(("steam_mode", v)) => c.steam_copy = v.trim() == "copy",
                     Some(("storage", v)) if !v.trim().is_empty() => c.storage = PathBuf::from(v.trim()),
                     Some(("add_self_to_steam", v)) => c.steam_self_never = v.trim() == "never",
+                    Some(("discord", v)) => c.discord = v.trim() != "off",
                     _ => {}
                 }
             }
@@ -195,10 +198,11 @@ impl LauncherConfig {
 
     fn save(&self) {
         let text = format!(
-            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\n",
+            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\ndiscord={}\n",
             if self.steam_copy { "copy" } else { "link" },
             self.storage.display(),
-            if self.steam_self_never { "never" } else { "ask" }
+            if self.steam_self_never { "never" } else { "ask" },
+            if self.discord { "on" } else { "off" }
         );
         let _ = std::fs::create_dir_all(library::data_dir());
         let _ = std::fs::write(Self::file(), text);

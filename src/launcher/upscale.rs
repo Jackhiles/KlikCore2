@@ -322,7 +322,10 @@ pub fn make_pack(game_path: &Path, style: Style, scale: u32, progress: &dyn Fn(S
     std::fs::create_dir_all(&inp).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&outp).map_err(|e| e.to_string())?;
     let result = run(&game, &exe, style, scale, &inp, &outp, game_path, progress);
-    let _ = std::fs::remove_dir_all(&work);
+    // KLIKCORE_UPSCALE_KEEP=1 keeps the working files (debugging).
+    if std::env::var_os("KLIKCORE_UPSCALE_KEEP").is_none() {
+        let _ = std::fs::remove_dir_all(&work);
+    }
     result
 }
 
@@ -347,13 +350,70 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
         return Err("the game has no images to upscale".into());
     }
 
-    // 2. Real-ESRGAN over the folder, counting finished files for progress.
+    // 2. Real-ESRGAN over the folder.
     let (model, model_scale) = match style {
         Style::Art => ("realesr-animevideov3", scale),
         Style::Render => ("realesrgan-x4plus", 4),
     };
+    let label = format!("{}, {scale}x", style.label());
+    ai_pass(exe, model, model_scale, inp, outp, &[], sent.len(), &label, progress)?;
+
+    // 3. Back to the wanted size, with the original transparency. Images the AI got wrong
+    // (missing, or black: the GPU driver sometimes drops a long run, "device lost", and
+    // everything after comes out black) are run again in small batches with gentler
+    // settings; any that still fail keep their original image.
+    let pack = pack_dir(game_path);
+    let images = pack.join("images");
+    let _ = std::fs::remove_dir_all(&images);
+    std::fs::create_dir_all(&images).map_err(|e| e.to_string())?;
+    let mut written = 0;
+    let mut todo = sent.clone();
+    for attempt in 0..3 {
+        let mut failed = Vec::new();
+        for (k, &h) in todo.iter().enumerate() {
+            if k % 10 == 0 {
+                progress(format!("Saving the pack {}/{}...", k + 1, todo.len()));
+            }
+            match save_one(game, h, scale, outp, &images)? {
+                true => written += 1,
+                false => failed.push(h),
+            }
+        }
+        if failed.is_empty() || attempt == 2 {
+            todo = failed;
+            break;
+        }
+        // Again, only the failed ones, 25 at a time (a dropped run then loses little).
+        for (b, batch) in failed.chunks(25).enumerate() {
+            let retry_in = inp.with_file_name("retry");
+            let _ = std::fs::remove_dir_all(&retry_in);
+            std::fs::create_dir_all(&retry_in).map_err(|e| e.to_string())?;
+            for h in batch {
+                let name = format!("{h}.png");
+                let _ = std::fs::remove_file(outp.join(&name));
+                std::fs::copy(inp.join(&name), retry_in.join(&name)).map_err(|e| e.to_string())?;
+            }
+            let what = format!("{label}, again: {}/{}", (b * 25 + batch.len()).min(failed.len()), failed.len());
+            // Errors here just leave those images failed.
+            let _ = ai_pass(exe, model, model_scale, &retry_in, outp, &["-t", "128", "-j", "1:1:1"], 0, &what, progress);
+        }
+        todo = failed;
+    }
+    let skipped = todo.len();
+    let readme = format!(
+        "Made by KlikCore with Real-ESRGAN ({model}, {} style, {scale}x).\r\nDelete this folder (or use \"Remove AI upscale pack\" in the launcher) to go back to the original images.\r\n",
+        style.label()
+    );
+    let _ = std::fs::write(pack.join("README.txt"), readme);
+    let note = if skipped > 0 { format!("; {skipped} kept their original image (the AI failed on them)") } else { String::new() };
+    Ok(format!("AI upscale pack made: {written} images at {scale}x ({}){note}.", style.label()))
+}
+
+/// One Real-ESRGAN run over a folder. `count` > 0 shows "done/count" progress.
+#[allow(clippy::too_many_arguments)]
+fn ai_pass(exe: &Path, model: &str, model_scale: u32, inp: &Path, outp: &Path, extra: &[&str], count: usize, label: &str, progress: &dyn Fn(String)) -> Result<(), String> {
     let mut cmd = std::process::Command::new(exe);
-    cmd.arg("-i").arg(inp).arg("-o").arg(outp).args(["-n", model, "-s", &model_scale.to_string(), "-f", "png", "-m"]).arg(tool_dir().join("models"));
+    cmd.arg("-i").arg(inp).arg("-o").arg(outp).args(["-n", model, "-s", &model_scale.to_string(), "-f", "png", "-m"]).arg(tool_dir().join("models")).args(extra);
     cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
     #[cfg(windows)]
     {
@@ -375,8 +435,12 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
         if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
             break st;
         }
-        let done = std::fs::read_dir(outp).map(|d| d.count()).unwrap_or(0);
-        progress(format!("Upscaling with AI {done}/{} ({}, {scale}x)...", sent.len(), style.label()));
+        if count > 0 {
+            let done = std::fs::read_dir(outp).map(|d| d.count()).unwrap_or(0);
+            progress(format!("Upscaling with AI {done}/{count} ({label})..."));
+        } else {
+            progress(format!("Upscaling with AI ({label})..."));
+        }
         std::thread::sleep(std::time::Duration::from_millis(500));
     };
     let messages = log.join().unwrap_or_default();
@@ -385,49 +449,41 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
         let last: String = messages.lines().filter(|l| !l.trim().ends_with('%')).last().unwrap_or("").to_string();
         return Err(format!("Real-ESRGAN failed{hint}: {last}"));
     }
+    Ok(())
+}
 
-    // 3. Back to the wanted size, with the original transparency.
-    let pack = pack_dir(game_path);
-    let images = pack.join("images");
-    let _ = std::fs::remove_dir_all(&images);
-    std::fs::create_dir_all(&images).map_err(|e| e.to_string())?;
-    let mut written = 0;
-    for (k, &h) in sent.iter().enumerate() {
-        if k % 10 == 0 {
-            progress(format!("Saving the pack {}/{}...", k + 1, sent.len()));
-        }
-        let Ok((aw, ah, rgb)) = read_rgb(&outp.join(format!("{h}.png"))) else { continue };
-        let Some(orig) = game.images.get(h).and_then(|e| e.decode_rgba().ok()) else { continue };
-        let (ow, oh) = (orig.width, orig.height);
-        // The wanted size, kept within the texture limit.
-        let fit = (MAX_SIDE as f32 / (ow.max(oh) * scale) as f32).min(1.0);
-        let (nw, nh) = (((ow * scale) as f32 * fit).round().max(1.0) as u32, ((oh * scale) as f32 * fit).round().max(1.0) as u32);
-        let rgb = resize(&rgb, aw as usize, ah as usize, 3, nw as usize, nh as usize);
-        let alpha: Vec<u8> = orig.pixels.chunks_exact(4).map(|p| p[3]).collect();
-        let opaque = alpha.iter().all(|&a| a == 255);
-        let mut rgba = Vec::with_capacity((nw * nh * 4) as usize);
-        if opaque {
-            for p in rgb.chunks_exact(3) {
-                rgba.extend_from_slice(&[p[0], p[1], p[2], 255]);
-            }
-        } else {
-            let hard = alpha.iter().all(|&a| a == 0 || a == 255);
-            let a = resize(&alpha, ow as usize, oh as usize, 1, nw as usize, nh as usize);
-            for (p, &a) in rgb.chunks_exact(3).zip(&a) {
-                // Cut-out sprites keep crisp edges (smoothed a little, not blurred).
-                let a = if hard { (((a as f32 - 128.0) * 2.0) + 128.0).clamp(0.0, 255.0) as u8 } else { a };
-                rgba.extend_from_slice(&[p[0], p[1], p[2], a]);
-            }
-        }
-        write_png(&images.join(format!("{h}.png")), nw, nh, png::ColorType::Rgba, &rgba)?;
-        written += 1;
+/// Turn one AI output into the pack image. Ok(false) when the output is missing or came
+/// out black although the original isn't.
+fn save_one(game: &GameData, h: u32, scale: u32, outp: &Path, images: &Path) -> Result<bool, String> {
+    let Ok((aw, ah, rgb)) = read_rgb(&outp.join(format!("{h}.png"))) else { return Ok(false) };
+    let Some(orig) = game.images.get(h).and_then(|e| e.decode_rgba().ok()) else { return Ok(true) };
+    let original_black = orig.pixels.chunks_exact(4).all(|p| p[3] == 0 || (p[0] | p[1] | p[2]) == 0);
+    if !original_black && rgb.iter().all(|&v| v == 0) {
+        return Ok(false);
     }
-    let readme = format!(
-        "Made by KlikCore with Real-ESRGAN ({model}, {} style, {scale}x).\r\nDelete this folder (or use \"Remove AI upscale pack\" in the launcher) to go back to the original images.\r\n",
-        style.label()
-    );
-    let _ = std::fs::write(pack.join("README.txt"), readme);
-    Ok(format!("AI upscale pack made: {written} images at {scale}x ({}).", style.label()))
+    let (ow, oh) = (orig.width, orig.height);
+    // The wanted size, kept within the texture limit.
+    let fit = (MAX_SIDE as f32 / (ow.max(oh) * scale) as f32).min(1.0);
+    let (nw, nh) = (((ow * scale) as f32 * fit).round().max(1.0) as u32, ((oh * scale) as f32 * fit).round().max(1.0) as u32);
+    let rgb = resize(&rgb, aw as usize, ah as usize, 3, nw as usize, nh as usize);
+    let alpha: Vec<u8> = orig.pixels.chunks_exact(4).map(|p| p[3]).collect();
+    let opaque = alpha.iter().all(|&a| a == 255);
+    let mut rgba = Vec::with_capacity((nw * nh * 4) as usize);
+    if opaque {
+        for p in rgb.chunks_exact(3) {
+            rgba.extend_from_slice(&[p[0], p[1], p[2], 255]);
+        }
+    } else {
+        let hard = alpha.iter().all(|&a| a == 0 || a == 255);
+        let a = resize(&alpha, ow as usize, oh as usize, 1, nw as usize, nh as usize);
+        for (p, &a) in rgb.chunks_exact(3).zip(&a) {
+            // Cut-out sprites keep crisp edges (smoothed a little, not blurred).
+            let a = if hard { (((a as f32 - 128.0) * 2.0) + 128.0).clamp(0.0, 255.0) as u8 } else { a };
+            rgba.extend_from_slice(&[p[0], p[1], p[2], a]);
+        }
+    }
+    write_png(&images.join(format!("{h}.png")), nw, nh, png::ColorType::Rgba, &rgba)?;
+    Ok(true)
 }
 
 #[cfg(test)]
