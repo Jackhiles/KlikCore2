@@ -299,8 +299,12 @@ fn main() -> Result<()> {
     }
     if let Some(cmd) = &cli.saves {
         use klikcore::runtime::save_sync::{self, Direction};
-        let fs = runtime::files::SaveFs::new(&game_path, runtime::files::save_root_for(&game_path, &game.name));
+        let fs = runtime::files::SaveFs::new(&game_path, runtime::files::save_root_for(&game_path, &game.name))
+            .with_prefix(klikcore::launcher::steam_shortcuts::proton_prefix(&game_path));
         println!("KlikCore saves: {}", fs.save_root.display());
+        if let Some(p) = &fs.prefix {
+            println!("original game's Proton prefix: {}", p.display());
+        }
         match cmd.as_str() {
             "import" | "export" => {
                 let dir = if cmd == "import" { Direction::Import } else { Direction::Export };

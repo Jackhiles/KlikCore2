@@ -235,6 +235,53 @@ pub fn steam_app_for(game: &Path) -> Option<String> {
     by_name
 }
 
+/// Linux / Steam Deck: the `drive_c` of the Proton prefix a game's original .exe runs in:
+/// the Steam game's, or the non-Steam shortcut's that starts this .exe (cached).
+pub fn proton_prefix(game: &Path) -> Option<PathBuf> {
+    if cfg!(windows) {
+        return None;
+    }
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, Option<PathBuf>>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(hit) = cache.lock().ok().and_then(|c| c.get(game).cloned()) {
+        return hit;
+    }
+    let mut ids: Vec<String> = steam_app_for(game).into_iter().collect();
+    ids.extend(shortcut_ids_for(game).into_iter().map(|id| id.to_string()));
+    let found = steam::steam_roots().iter().flat_map(|r| steam::libraries(r)).find_map(|lib| {
+        ids.iter().map(|id| lib.join("steamapps").join("compatdata").join(id).join("pfx").join("drive_c")).find(|p| p.is_dir())
+    });
+    if let Ok(mut c) = cache.lock() {
+        c.insert(game.to_path_buf(), found.clone());
+    }
+    found
+}
+
+/// App ids of non-Steam shortcuts that start this .exe directly (with Proton).
+fn shortcut_ids_for(game: &Path) -> Vec<u32> {
+    let Some(file) = user_config_dir().map(|d| d.join("shortcuts.vdf")) else { return Vec::new() };
+    let Some(root) = std::fs::read(file).ok().and_then(|b| parse(&b)) else { return Vec::new() };
+    let Some((_, Value::Map(list))) = root.iter().find(|(k, _)| k.eq_ignore_ascii_case("shortcuts")) else { return Vec::new() };
+    let want = std::fs::canonicalize(game).unwrap_or_else(|_| game.to_path_buf());
+    list.iter()
+        .filter_map(|(_, v)| {
+            let Value::Map(m) = v else { return None };
+            let exe = m.iter().find(|(k, _)| k.eq_ignore_ascii_case("Exe")).and_then(|(_, v)| match v {
+                Value::Str(s) => Some(s.trim().trim_matches('"').to_string()),
+                _ => None,
+            })?;
+            let exe = std::fs::canonicalize(&exe).unwrap_or_else(|_| PathBuf::from(&exe));
+            if exe != want {
+                return None;
+            }
+            m.iter().find(|(k, _)| k.eq_ignore_ascii_case("appid")).and_then(|(_, v)| match v {
+                Value::Int(i) => Some(*i),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
 /// Steam's cached store artwork for an app: (grid file suffix, source file).
 pub fn steam_art(app_id: &str) -> Vec<(&'static str, PathBuf)> {
     // grid name suffix, file name in the cache folder, old flat cache name

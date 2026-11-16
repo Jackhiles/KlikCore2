@@ -200,7 +200,8 @@ impl Launcher {
     fn saves_card(&mut self, i: usize, p: &mut Page) {
         use crate::runtime::save_sync::{self, Direction};
         let Some(entry) = self.entries.get(i).cloned() else { return };
-        let fs = crate::runtime::files::SaveFs::new(&entry.path, crate::runtime::files::save_root_for(&entry.path, &entry.title));
+        let fs = crate::runtime::files::SaveFs::new(&entry.path, crate::runtime::files::save_root_for(&entry.path, &entry.title))
+            .with_prefix(super::steam_shortcuts::proton_prefix(&entry.path));
         if self.saves_status.as_ref().is_none_or(|(k, _)| *k != i) {
             self.saves_status = Some((i, save_sync::status(&fs).line()));
             self.saves_confirm = None;

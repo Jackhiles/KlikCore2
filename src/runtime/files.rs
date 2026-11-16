@@ -17,6 +17,9 @@ pub struct SaveFs {
     pub save_root: PathBuf,
     /// The real roaming AppData folder (Windows), used to map AppData paths.
     pub appdata: Option<PathBuf>,
+    /// Linux / Steam Deck: the `drive_c` folder of the Proton prefix the original game runs
+    /// in (where its AppData and C:\ saves are), for the save manager.
+    pub prefix: Option<PathBuf>,
     /// Windows' VirtualStore: where old games' writes to protected places (C:\, Program
     /// Files) really went, so their saves are read from there.
     pub virtual_store: Option<PathBuf>,
@@ -142,21 +145,56 @@ fn migrate_old_saves(base: &Path, root: PathBuf) -> PathBuf {
     root
 }
 
+/// The AppData folder games see when not on Windows: Proton's, so paths match it.
+pub const PROTON_APPDATA: &str = r"C:\users\steamuser\AppData\Roaming";
+
+/// Before 2.0.5, games outside Windows had no AppData folder, so "no folder" INI files
+/// were filed under `other\MMFApplications`. Move them to where they belong (`appdata\`),
+/// keeping anything already there.
+fn migrate_rootless_appdata(save_root: &Path) {
+    let old = save_root.join("other").join("MMFApplications");
+    if !old.is_dir() {
+        return;
+    }
+    let new = save_root.join("appdata").join("MMFApplications");
+    let _ = std::fs::create_dir_all(&new);
+    for e in std::fs::read_dir(&old).into_iter().flatten().flatten() {
+        let to = new.join(e.file_name());
+        if !to.exists() {
+            let _ = std::fs::rename(e.path(), &to);
+        }
+    }
+    let _ = std::fs::remove_dir(&old);
+    let _ = std::fs::remove_dir(save_root.join("other"));
+}
+
 impl SaveFs {
     pub fn new(app_file: &Path, save_root: PathBuf) -> Self {
         let app_file = std::path::absolute(app_file).unwrap_or_else(|_| app_file.to_path_buf());
         let app_dir = app_file.parent().map(Path::to_path_buf).unwrap_or_default();
-        let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
+        // Elsewhere than Windows, games see the AppData folder Proton gives them, so their
+        // saves are filed exactly as on Windows (and sync between devices lines up).
+        let appdata = std::env::var_os("APPDATA").map(PathBuf::from).or_else(|| (!cfg!(windows)).then(|| PathBuf::from(PROTON_APPDATA)));
+        if !cfg!(windows) {
+            migrate_rootless_appdata(&save_root);
+        }
         let virtual_store = if cfg!(windows) { std::env::var_os("LOCALAPPDATA").map(|l| PathBuf::from(l).join("VirtualStore")) } else { None };
         Self {
             app_file,
             app_dir,
             save_root,
             appdata,
+            prefix: None,
             virtual_store,
             isolated: false,
             noted: Default::default(),
         }
+    }
+
+    /// With the original game's Proton prefix (`.../pfx/drive_c`), for the save manager.
+    pub fn with_prefix(mut self, prefix: Option<PathBuf>) -> Self {
+        self.prefix = prefix;
+        self
     }
 
     /// "C:" style drive of the application (empty on systems without drives).
@@ -282,6 +320,20 @@ impl SaveFs {
         if rest.is_empty() {
             return None;
         }
+        // Linux / Steam Deck: AppData and C:\ are inside the original's Proton prefix.
+        if !cfg!(windows) && area != "app" {
+            let drive_c = self.prefix.clone()?;
+            let mut out = match area.as_str() {
+                "appdata" => drive_c.join("users").join("steamuser").join("AppData").join("Roaming"),
+                "other" if rest.first().is_some_and(|d| d.eq_ignore_ascii_case("c")) => drive_c,
+                _ => return None,
+            };
+            let skip = usize::from(area == "other");
+            for r in &rest[skip..] {
+                out.push(r);
+            }
+            return Some(out);
+        }
         let mut out = match area.as_str() {
             "app" => self.app_dir.clone(),
             "appdata" => self.appdata.clone()?,
@@ -350,6 +402,34 @@ impl SaveFs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Linux / Steam Deck: AppData saves are filed as on Windows and map into the original
+    /// game's Proton prefix; saves filed the old way move over.
+    #[cfg(not(windows))]
+    #[test]
+    fn proton_saves_map_into_the_prefix() {
+        let root = std::env::temp_dir().join(format!("klikcore-proton-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let save = root.join("saves");
+        std::fs::create_dir_all(save.join("other").join("MMFApplications")).unwrap();
+        std::fs::write(save.join("other").join("MMFApplications").join("old"), b"1").unwrap();
+        let drive_c = root.join("pfx").join("drive_c");
+        let fs = SaveFs::new(&root.join("game").join("game.exe"), save.clone()).with_prefix(Some(drive_c.clone()));
+        // The old location moved.
+        assert!(save.join("appdata").join("MMFApplications").join("old").is_file());
+        assert!(!save.join("other").exists());
+        // An INI in AppData lands in appdata\ and maps to the prefix's Roaming folder.
+        let ini = format!("{PROTON_APPDATA}\MMFApplications\game1");
+        let boxed = fs.sandboxed(&ini);
+        assert_eq!(boxed, save.join("appdata").join("MMFApplications").join("game1"));
+        let roaming = drive_c.join("users").join("steamuser").join("AppData").join("Roaming");
+        assert_eq!(fs.original_of(&boxed), Some(roaming.join("MMFApplications").join("game1")));
+        // C:\ files map to drive_c; no prefix, no original location.
+        assert_eq!(fs.original_of(&save.join("other").join("c").join("x.sav")), Some(drive_c.join("x.sav")));
+        let plain = SaveFs::new(&root.join("game").join("game.exe"), save);
+        assert_eq!(plain.original_of(&boxed), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn app_relative_paths_map_into_the_sandbox() {
