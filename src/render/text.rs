@@ -11,6 +11,59 @@ use macroquad::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Fonts a game loaded from its own files (the Font Embed object): name -> TrueType data.
+static EMBEDDED: std::sync::OnceLock<std::sync::Mutex<HashMap<String, std::sync::Arc<Vec<u8>>>>> = std::sync::OnceLock::new();
+
+fn name_key(name: &str) -> String {
+    name.chars().filter(|c| !c.is_whitespace() && *c != '-' && *c != '_').flat_map(char::to_lowercase).collect()
+}
+
+/// Make a font file usable by name for the rest of the session. Returns its family name.
+pub fn register_font(bytes: Vec<u8>) -> Option<String> {
+    let names = ttf_names(&bytes);
+    let family = names.first().cloned()?;
+    let data = std::sync::Arc::new(bytes);
+    let mut map = EMBEDDED.get_or_init(Default::default).lock().ok()?;
+    for n in names {
+        map.insert(name_key(&n), data.clone());
+    }
+    Some(family)
+}
+
+fn embedded(face: &str) -> Option<std::sync::Arc<Vec<u8>>> {
+    EMBEDDED.get()?.lock().ok()?.get(&name_key(face)).cloned()
+}
+
+/// Family, full and PostScript names from a TrueType / OpenType name table.
+pub fn ttf_names(b: &[u8]) -> Vec<String> {
+    let u16_at = |o: usize| b.get(o..o + 2).map(|s| u16::from_be_bytes([s[0], s[1]]) as usize);
+    let u32_at = |o: usize| b.get(o..o + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]) as usize);
+    let mut out = Vec::new();
+    let Some(tables) = u16_at(4) else { return out };
+    let Some(name) = (0..tables).map(|i| 12 + i * 16).find(|&r| b.get(r..r + 4) == Some(b"name")).and_then(|r| u32_at(r + 8)) else { return out };
+    let (Some(count), Some(strings)) = (u16_at(name + 2), u16_at(name + 4)) else { return out };
+    for want in [1, 4, 6] {
+        for i in 0..count {
+            let r = name + 6 + i * 12;
+            let (Some(platform), Some(id), Some(len), Some(off)) = (u16_at(r), u16_at(r + 6), u16_at(r + 8), u16_at(r + 10)) else { continue };
+            if id != want {
+                continue;
+            }
+            let Some(raw) = b.get(name + strings + off..name + strings + off + len) else { continue };
+            let s = if platform == 3 || platform == 0 {
+                let units: Vec<u16> = raw.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+                String::from_utf16_lossy(&units)
+            } else {
+                raw.iter().map(|&c| c as char).collect()
+            };
+            if !s.trim().is_empty() && !out.contains(&s) {
+                out.push(s);
+            }
+        }
+    }
+    out
+}
+
 fn font_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Ok(w) = std::env::var("WINDIR") {
@@ -97,6 +150,13 @@ pub struct Fonts {
     /// Bank font handle -> loaded font (None = use the default font).
     loaded: HashMap<u32, Option<Font>>,
     by_file: HashMap<PathBuf, Font>,
+    /// A font with Japanese / Chinese / Korean characters, once looked for.
+    cjk: Option<Option<Font>>,
+}
+
+/// Japanese, Chinese or Korean characters (which Latin fonts don't have).
+pub fn has_cjk(text: &str) -> bool {
+    text.chars().any(|c| matches!(c as u32, 0x3000..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF))
 }
 
 impl Fonts {
@@ -106,6 +166,9 @@ impl Fonts {
 
     /// A system font by face name (falls back to Arial, then the built-in font).
     pub fn by_face(&mut self, face: &str, bold: bool) -> Option<Font> {
+        if let Some(f) = self.embedded_font(face) {
+            return Some(f);
+        }
         let path = find_font_file(face, bold, false)
             .or_else(|| find_font_file(face, false, false))
             .or_else(|| find_font_file("arial", bold, false))?;
@@ -117,8 +180,43 @@ impl Fonts {
         Some(f)
     }
 
+    /// An installed font with Japanese / Chinese / Korean characters: Windows draws text
+    /// in such characters with one even when the chosen font lacks them (font linking).
+    pub fn cjk(&mut self) -> Option<Font> {
+        if let Some(f) = &self.cjk {
+            return f.clone();
+        }
+        const NAMES: [&str; 8] = ["YuGothM.ttc", "meiryo.ttc", "msgothic.ttc", "msmincho.ttc", "NotoSansCJK-Regular.ttc", "NotoSansCJKjp-Regular.otf", "NotoSansJP-Regular.otf", "DroidSansFallbackFull.ttf"];
+        let mut dirs = font_dirs();
+        // Linux keeps CJK fonts a folder or two deeper.
+        for d in font_dirs() {
+            for sub in ["noto-cjk", "opentype/noto", "google-noto-cjk", "truetype/droid", "OTF"] {
+                dirs.push(d.join(sub));
+            }
+        }
+        let found = NAMES.iter().flat_map(|n| dirs.iter().map(move |d| d.join(n))).find(|p| p.is_file());
+        let font = found.and_then(|p| std::fs::read(p).ok()).and_then(|b| load_ttf_font_from_bytes(&b).ok());
+        self.cjk = Some(font.clone());
+        font
+    }
+
+    /// A font the game loaded itself (Font Embed), by name.
+    fn embedded_font(&mut self, face: &str) -> Option<Font> {
+        let data = embedded(face)?;
+        let key = PathBuf::from(format!("embedded:{}", name_key(face)));
+        if let Some(f) = self.by_file.get(&key) {
+            return Some(f.clone());
+        }
+        let f = load_ttf_font_from_bytes(&data).ok()?;
+        self.by_file.insert(key, f.clone());
+        Some(f)
+    }
+
     /// A font by face name only if it is installed (no substitute).
     pub fn installed(&mut self, face: &str) -> Option<Font> {
+        if let Some(f) = self.embedded_font(face) {
+            return Some(f);
+        }
         find_font_file(face, false, false)?;
         self.by_face(face, false)
     }

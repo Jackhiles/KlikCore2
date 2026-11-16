@@ -188,6 +188,8 @@ pub struct Runtime {
     pub global_strings: Vec<String>,
     pub score: [i32; 4],
     pub lives: [i32; 4],
+    /// Layers changed by the Layer object this frame: (shown, opacity, RGB tint) by index.
+    pub layer_fx: HashMap<usize, LayerFx>,
     /// The players' control keys (from the header; games can change them).
     pub controls: [crate::ctf_loader::header::PlayerControls; 4],
     events: Rc<Events>,
@@ -251,6 +253,20 @@ pub struct Runtime {
     oi_index: RefCell<Option<HashMap<u16, Vec<usize>>>>,
 }
 
+/// What the Layer object changed about a layer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LayerFx {
+    pub visible: Option<bool>,
+    pub alpha: u8,
+    pub rgb: [u8; 3],
+}
+
+impl Default for LayerFx {
+    fn default() -> Self {
+        Self { visible: None, alpha: 255, rgb: [255; 3] }
+    }
+}
+
 impl Runtime {
     pub fn new(game: GameData, start_frame: usize) -> Self {
         Self::with_save_root(game, start_frame, None)
@@ -293,6 +309,7 @@ impl Runtime {
             score: [game.header.initial_score as i32; 4],
             lives: [game.header.initial_lives as i32; 4],
             controls: game.header.controls.clone(),
+            layer_fx: HashMap::default(),
             game,
             frame_index: 0,
             instances: Vec::new(),
@@ -343,6 +360,11 @@ impl Runtime {
         rt
     }
 
+    /// A layer's state for drawing: shown (None = the frame's own setting), opacity, tint.
+    pub fn layer_fx(&self, layer: usize) -> LayerFx {
+        self.layer_fx.get(&layer).copied().unwrap_or_default()
+    }
+
     pub fn frame(&self) -> &Frame {
         &self.game.frames[self.frame_index]
     }
@@ -356,6 +378,7 @@ impl Runtime {
         self.frame_log.push(self.frame_index);
         self.remember_globals();
         self.instances.clear();
+        self.layer_fx.clear();
         self.invalidate_index();
         self.bullets.clear();
         self.next_z = 0;

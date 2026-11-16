@@ -12,6 +12,7 @@ mod ini;
 mod joystick;
 mod kcfile;
 mod kcarray;
+mod misc;
 mod moo;
 
 use super::files::SaveFs;
@@ -53,7 +54,41 @@ impl Extension for SystemInfo {
         false
     }
     fn expression(&self, idx: usize, _: &[Value], _: &SaveFs) -> Option<Value> {
-        (idx == 5).then_some(Value::Int(10))
+        match idx {
+            // The system's language as a Windows language id (1041 Japanese, 1033 English).
+            3 => Some(Value::Int(system_language_id() as i32)),
+            5 => Some(Value::Int(10)),
+            _ => None,
+        }
+    }
+}
+
+/// The user's interface language as a Windows language id.
+fn system_language_id() -> u16 {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetUserDefaultUILanguage() -> u16;
+        }
+        // SAFETY: no arguments; returns a language id.
+        unsafe { GetUserDefaultUILanguage() }
+    }
+    #[cfg(not(windows))]
+    {
+        let lang = std::env::var("LC_ALL").or_else(|_| std::env::var("LANG")).unwrap_or_default().to_lowercase();
+        match lang.get(..2).unwrap_or("") {
+            "ja" => 1041,
+            "fr" => 1036,
+            "de" => 1031,
+            "es" => 3082,
+            "it" => 1040,
+            "pt" => 1046,
+            "ru" => 1049,
+            "zh" => 2052,
+            "ko" => 1042,
+            _ => 1033,
+        }
     }
 }
 
@@ -75,6 +110,14 @@ pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dy
         "kccursor" => Some(Box::new(inert::Inert)),
         "kcsyso" => Some(Box::new(SystemInfo)),
         "moo2" => Some(Box::new(moo::Moo::new(shared.tick.clone()))),
+        "encryption" => Some(Box::new(misc::Encryption)),
+        "parser" => Some(Box::new(misc::Parser::from_data(data))),
+        "advdir" => Some(Box::new(misc::AdvDir)),
+        "bigbox" => Some(Box::new(misc::BigBox)),
+        "fontembed" => Some(Box::new(misc::FontEmbed)),
+        // Screen capture and image tools (used by a debug screenshot), a slider control,
+        // Steam's API: nothing to show or do here.
+        "capture" | "imageconv" | "trackbar" | "steamworks" => Some(Box::new(inert::Inert)),
         "kcwctrl" | "drpc" | "hiddenproperties" | "android" | "inappandroid" | "xna" | "androidplus" | "multipletouch" => {
             Some(Box::new(inert::Inert))
         }

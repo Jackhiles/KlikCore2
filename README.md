@@ -73,7 +73,15 @@ Extension objects (`.mfx` files) are reimplemented natively in `src/runtime/ext/
   fails, the error event fires once with a message, and nothing connects, joins or arrives; games play offline.
 - **Multiple Touch** (`MultipleTouch`): the mouse is touch 0 (new touch, touch on an object, touch active / ended,
   touch position), so touch-controlled PC ports can be clicked. Mobile helpers (`AndroidPlus`) are accepted.
-- **System object** (`kcsyso`): the operating-system version (as a current Windows). **Cursor** (`kccursor`): cursor
+- **Encryption** (`Encryption`): encode / decode pass the text through (KlikCore's own saves read back; saves the
+  original runtime encoded don't). **String Parser** (`parser`): set the text, get the n-th piece. **Advanced
+  Direction** (`AdvDir`): direction between two points, x / y offsets of a direction and distance. **Select**
+  (`Select`): pick the object with the lowest alterable value. **Layer** (`Layer`): show / hide a layer, its opacity
+  and tint. **Font Embed** (`fontembed`): load a font file so text can use it by name. **The Big Box** (`bigbox`):
+  open a web address. Screen capture, image tools, sliders and Steam's API are accepted and do nothing.
+- Text in Japanese, Chinese or Korean is drawn with an installed font that has those characters when the game's font
+  doesn't (as Windows does), e.g. Yu Gothic / Meiryo on Windows, Noto Sans CJK on Linux.
+- **System object** (`kcsyso`): the operating-system version (as a current Windows) and the system language. **Cursor** (`kccursor`): cursor
   shapes are accepted (the pointer stays as it is); "use an object's image as the pointer" works.
 
 Games write their files through a sandbox. Writes go to `%APPDATA%\KlikCore\<game>\` (override with `--save-dir`), split into `app\` for paths under the game folder and `appdata\` for AppData paths. Reads check the sandbox first and then the real location, so saves from the original game are picked up but never modified. On Windows that includes the VirtualStore (`%LOCALAPPDATA%\VirtualStore`), where old games' saves to protected places such as `C:\` really end up.

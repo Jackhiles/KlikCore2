@@ -1315,7 +1315,8 @@ impl Viewer {
             .map(|i| match frame.layers.get(i) {
                 Some(l) => {
                     let (cx, cy) = l.scroll_coefficients();
-                    (l.flags & LAYER_VISIBLE != 0, vec2(cx, cy))
+                    let shown = self.rt.layer_fx(i).visible.unwrap_or(l.flags & LAYER_VISIBLE != 0);
+                    (shown, vec2(cx, cy))
                 }
                 None => (true, Vec2::ONE),
             })
@@ -1349,7 +1350,18 @@ impl Viewer {
             };
             let shown = item.visible || self.show_hidden;
             if shown {
-                self.draw_item(item, xf, view);
+                // A layer's opacity and tint (Layer object) multiply into its objects'.
+                let fx = self.rt.layer_fx(li);
+                if fx.alpha != 255 || fx.rgb != [255; 3] {
+                    let mut tinted = item.clone();
+                    for c in 0..3 {
+                        tinted.tint[c] = (tinted.tint[c] as u16 * fx.rgb[c] as u16 / 255) as u8;
+                    }
+                    tinted.tint[3] = (tinted.tint[3] as u16 * fx.alpha as u16 / 255) as u8;
+                    self.draw_item(&tinted, xf, view);
+                } else {
+                    self.draw_item(item, xf, view);
+                }
             }
             if self.debug_boxes {
                 self.draw_debug_box(item, xf);
@@ -1556,6 +1568,8 @@ impl Viewer {
                 } else {
                     face.as_deref().and_then(|n| self.fonts.installed(n)).or(f)
                 };
+                // Japanese / Chinese / Korean text in a font without those characters.
+                let f = if text::has_cjk(text) { self.fonts.cjk().or(f) } else { f };
                 let px = size_override.unwrap_or(px);
                 let mut c = rgba(*color);
                 c.a = item.tint[3] as f32 / 255.0;
