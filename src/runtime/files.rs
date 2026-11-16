@@ -117,7 +117,7 @@ pub fn data_root() -> PathBuf {
 }
 
 /// Data from before the project's renames (`Rekindle`, earlier `fusion-rt`) moves to the
-/// new folder once. If the old folder can't be moved (something has it open), it stays in
+/// new folder once, leaving a link at the old name. If the old folder can't be moved (something has it open), it stays in
 /// use, so nothing is lost.
 #[cfg(not(target_os = "android"))]
 fn migrate_old_saves(base: &Path, root: PathBuf) -> PathBuf {
@@ -127,7 +127,16 @@ fn migrate_old_saves(base: &Path, root: PathBuf) -> PathBuf {
     for old_name in ["Rekindle", "fusion-rt"] {
         let old = base.join(old_name);
         if old.is_dir() {
-            return if std::fs::rename(&old, &root).is_ok() { root } else { old };
+            if std::fs::rename(&old, &root).is_err() {
+                return old;
+            }
+            // Paths saved elsewhere still point into the old folder (Steam shortcuts to
+            // synced games and their icons, library entries): leave a link to the new one.
+            #[cfg(unix)]
+            let _ = std::os::unix::fs::symlink(&root, &old);
+            #[cfg(windows)]
+            let _ = std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(&old).arg(&root).output();
+            return root;
         }
     }
     root
