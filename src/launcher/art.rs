@@ -306,7 +306,7 @@ pub fn generate(g: &GameData, title: &str, dir: &Path) -> Vec<(&'static str, Pat
     out
 }
 
-/// Rekindle's own library artwork: its icon and name on a warm dark gradient.
+/// KlikCore's own library artwork: its icon and name on a warm dark gradient.
 pub fn generate_brand(dir: &Path) -> Vec<(&'static str, PathBuf)> {
     let _ = std::fs::create_dir_all(dir);
     let Some(icon) = super::icon_image() else { return Vec::new() };
@@ -337,19 +337,19 @@ pub fn generate_brand(dir: &Path) -> Vec<(&'static str, PathBuf)> {
     let mut p = gradient(600, 900);
     p.draw(&icon.scaled(300, 300), 150, 230);
     if let Some(t) = &text {
-        t.draw(&mut p, "Rekindle", 84.0, 0.0, Some(300.0), 660.0);
+        t.draw(&mut p, "KlikCore 2", 76.0, 0.0, Some(300.0), 660.0);
     }
     save("p", "portrait.png", &p);
     let mut w = gradient(920, 430);
     w.draw(&icon.scaled(220, 220), 90, 105);
     if let Some(t) = &text {
-        t.draw(&mut w, "Rekindle", 96.0, 350.0, None, 250.0);
+        t.draw(&mut w, "KlikCore 2", 88.0, 350.0, None, 250.0);
     }
     save("", "wide.png", &w);
     save("_hero", "hero.png", &gradient(1920, 620));
     if let Some(t) = &text {
         let mut l = Canvas::new(560, 150, [0; 4]);
-        t.draw(&mut l, "Rekindle", 110.0, 0.0, Some(280.0), 115.0);
+        t.draw(&mut l, "KlikCore 2", 100.0, 0.0, Some(280.0), 115.0);
         save("_logo", "logo.png", &l);
     }
     out

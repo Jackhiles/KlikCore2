@@ -1,7 +1,7 @@
 //! `--dump-info` report.
 
-use rekindle::ctf_loader::chunk::chunk_name;
-use rekindle::ctf_loader::{GameData, ObjectKind};
+use klikcore::ctf_loader::chunk::chunk_name;
+use klikcore::ctf_loader::{GameData, ObjectKind};
 use std::collections::BTreeMap;
 
 fn count_by<K: Ord, I: IntoIterator<Item = K>>(it: I) -> BTreeMap<K, usize> {
@@ -151,16 +151,16 @@ pub fn print_info(g: &GameData, verbose: bool) {
             };
             // Movement types (all of an object's movements, in order).
             let moves = match &o.props {
-                rekindle::ctf_loader::properties::ObjectProperties::Common(c) if !c.movements.is_empty() => {
+                klikcore::ctf_loader::properties::ObjectProperties::Common(c) if !c.movements.is_empty() => {
                     let names: Vec<String> = c
                         .movements
                         .iter()
                         .map(|m| {
                             let name = format!("{:?}", m.kind).split([' ', '{', '(']).next().unwrap_or("").to_string();
                             let speed = match &m.kind {
-                                rekindle::ctf_loader::properties::MovementKind::EightDirections { speed, .. }
-                                | rekindle::ctf_loader::properties::MovementKind::Ball { speed, .. } => format!(" speed {speed}"),
-                                rekindle::ctf_loader::properties::MovementKind::Mouse { x1, x2, y1, y2 } => format!(" area x {x1}..{x2} y {y1}..{y2}"),
+                                klikcore::ctf_loader::properties::MovementKind::EightDirections { speed, .. }
+                                | klikcore::ctf_loader::properties::MovementKind::Ball { speed, .. } => format!(" speed {speed}"),
+                                klikcore::ctf_loader::properties::MovementKind::Mouse { x1, x2, y1, y2 } => format!(" area x {x1}..{x2} y {y1}..{y2}"),
                                 _ => String::new(),
                             };
                             format!("{name}{speed}{}{}", if m.player > 0 { format!(" p{}", m.player) } else { String::new() }, if m.moving_at_start { "" } else { " stopped" })
@@ -172,15 +172,15 @@ pub fn print_info(g: &GameData, verbose: bool) {
             };
             // Text objects: paragraph count and the first few paragraphs.
             let paras = match &o.props {
-                rekindle::ctf_loader::properties::ObjectProperties::Common(c) => c.text.as_ref().map_or(String::new(), |t| {
-                    let first: Vec<String> = t.paragraphs.iter().take(if std::env::var_os("REKINDLE_ALL_PARAS").is_some() { usize::MAX } else { 4 }).map(|p| format!("{:?}", p.text.chars().take(16).collect::<String>())).collect();
+                klikcore::ctf_loader::properties::ObjectProperties::Common(c) => c.text.as_ref().map_or(String::new(), |t| {
+                    let first: Vec<String> = t.paragraphs.iter().take(if std::env::var_os("KLIKCORE_ALL_PARAS").is_some() { usize::MAX } else { 4 }).map(|p| format!("{:?}", p.text.chars().take(16).collect::<String>())).collect();
                     format!("  [{} paragraphs: {}]", t.paragraphs.len(), first.join(", "))
                 }),
                 _ => String::new(),
             };
-            // REKINDLE_ANIMS=1: which animations an object has (index:frames of first direction).
+            // KLIKCORE_ANIMS=1: which animations an object has (index:frames of first direction).
             let paras = match &o.props {
-                rekindle::ctf_loader::properties::ObjectProperties::Common(c) if std::env::var_os("REKINDLE_ANIMS").is_some() && !c.animations.is_empty() => {
+                klikcore::ctf_loader::properties::ObjectProperties::Common(c) if std::env::var_os("KLIKCORE_ANIMS").is_some() && !c.animations.is_empty() => {
                     let list: Vec<String> = c
                         .animations
                         .iter()
@@ -191,9 +191,9 @@ pub fn print_info(g: &GameData, verbose: bool) {
                 }
                 _ => paras,
             };
-            // REKINDLE_EXT_DATA=1: an extension object's stored settings, in hex.
+            // KLIKCORE_EXT_DATA=1: an extension object's stored settings, in hex.
             let paras = match &o.props {
-                rekindle::ctf_loader::properties::ObjectProperties::Common(c) if std::env::var_os("REKINDLE_EXT_DATA").is_some() => {
+                klikcore::ctf_loader::properties::ObjectProperties::Common(c) if std::env::var_os("KLIKCORE_EXT_DATA").is_some() => {
                     let hex: Vec<String> = c.extension_data.iter().flatten().take(64).map(|b| format!("{b:02x}")).collect();
                     if hex.is_empty() { paras } else { format!("{paras}  data {}", hex.join(" ")) }
                 }
@@ -280,7 +280,7 @@ pub fn print_info(g: &GameData, verbose: bool) {
 
 /// `--dump-events N`: print a frame's event sheet in a compact readable form.
 pub fn print_events(g: &GameData, frame: usize) {
-    use rekindle::ctf_loader::events::{Param, TokenValue};
+    use klikcore::ctf_loader::events::{Param, TokenValue};
     let Some(f) = g.frames.get(frame) else {
         println!("no frame {frame}");
         return;
@@ -323,7 +323,7 @@ pub fn print_events(g: &GameData, frame: usize) {
             }
             other => {
                 let s = format!("{other:?}");
-                s.chars().take(if std::env::var_os("REKINDLE_FULL_PARAMS").is_some() { usize::MAX } else { 80 }).collect()
+                s.chars().take(if std::env::var_os("KLIKCORE_FULL_PARAMS").is_some() { usize::MAX } else { 80 }).collect()
             }
         }
     };
@@ -360,8 +360,8 @@ pub fn print_events(g: &GameData, frame: usize) {
 
 /// `--audit`: look for data the runtime is likely to show differently from the original.
 pub fn print_audit(g: &GameData) {
-    use rekindle::ctf_loader::ObjectProperties;
-    use rekindle::render::text::find_font_file;
+    use klikcore::ctf_loader::ObjectProperties;
+    use klikcore::render::text::find_font_file;
     use std::collections::{BTreeMap, BTreeSet};
 
     println!("== Audit: {}", g.name);

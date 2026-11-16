@@ -1,4 +1,4 @@
-//! Android entry point. The app is this library built as `librekindle.so`, loaded by
+//! Android entry point. The app is this library built as `libklikcore.so`, loaded by
 //! miniquad's Java activity (see scripts/android/build.py), which calls `quad_main`.
 //!
 //! There are no separate processes on Android: the launcher and the games share one
@@ -73,7 +73,7 @@ pub(crate) fn take_launch_game() -> Option<PathBuf> {
 }
 
 /// Ask the home screen to pin a shortcut that opens `game` (Android 8+). `icon` is a PNG
-/// file (or None for Rekindle's icon). Returns false where pinning isn't supported.
+/// file (or None for KlikCore's icon). Returns false where pinning isn't supported.
 pub(crate) fn pin_shortcut(id: &str, label: &str, icon: Option<&Path>, game: &Path) -> bool {
     use std::ffi::CString;
     unsafe {

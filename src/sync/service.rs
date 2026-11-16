@@ -1,4 +1,4 @@
-//! The sync service: finds Rekindle on other devices of the local network, pairs with
+//! The sync service: finds KlikCore on other devices of the local network, pairs with
 //! them, keeps paired devices' saves in sync and copies game files between them. All
 //! network work happens on background threads; the launcher reads and drives `Shared`.
 
@@ -138,6 +138,8 @@ impl Service {
     /// Every few seconds ask "who's there?" on the local network; answer others' questions
     /// directly (answers are ordinary packets, which also reach phones that filter
     /// broadcasts).
+    /// (Discovery messages carry `"app": "rekindle"`, the project's earlier name, so older
+    /// versions still find this one.)
     fn discover(&self) {
         let Some(sock) = self.udp.clone() else { return };
         let _ = sock.set_broadcast(true);
@@ -186,7 +188,7 @@ impl Service {
         s.nearby.get(peer).map(|n| n.addr).or_else(|| s.peers.iter().find(|p| p.id == peer).and_then(|p| p.last_addr))
     }
 
-    /// Look for Rekindle at an address typed by the user (remembered for next time).
+    /// Look for KlikCore at an address typed by the user (remembered for next time).
     pub fn add_address(&self, ip: IpAddr) {
         {
             let mut s = lock(&self.shared);

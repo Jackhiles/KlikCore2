@@ -1,9 +1,9 @@
-//! Save manager: move a game's saves between Rekindle's save folder and the places the
+//! Save manager: move a game's saves between KlikCore's save folder and the places the
 //! original game keeps them, in either direction.
 //!
 //! The save folder mirrors the original locations (`app\…` = the game's folder,
 //! `appdata\…` = AppData, `other\c\…` = `C:\…`; see `SaveFs::sandboxed`), so every file in
-//! it has an original counterpart. Original files the game has read but Rekindle has not
+//! it has an original counterpart. Original files the game has read but KlikCore has not
 //! written yet are listed in `ORIGINALS_LIST`. For each of those files, a copy makes the
 //! destination match the source: files are copied, and destination files with no source
 //! are removed. Everything overwritten or removed goes to `backups\<time>\` in the save
@@ -16,20 +16,20 @@ use std::time::SystemTime;
 /// One save file and its two copies.
 #[derive(Debug, Clone)]
 pub struct SaveFile {
-    /// Inside Rekindle's save folder.
-    pub rekindle: PathBuf,
+    /// Inside KlikCore's save folder.
+    pub klikcore: PathBuf,
     /// Where the original game keeps it.
     pub original: PathBuf,
-    pub rekindle_time: Option<SystemTime>,
+    pub klikcore_time: Option<SystemTime>,
     pub original_time: Option<SystemTime>,
 }
 
 /// Which way to copy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
-    /// Original game -> Rekindle.
+    /// Original game -> KlikCore.
     Import,
-    /// Rekindle -> original game.
+    /// KlikCore -> original game.
     Export,
 }
 
@@ -37,10 +37,10 @@ pub enum Direction {
 #[derive(Debug, Clone, Default)]
 pub struct Status {
     pub files: usize,
-    pub in_rekindle: usize,
+    pub in_klikcore: usize,
     pub in_original: usize,
     /// Newest change on each side.
-    pub rekindle_newest: Option<SystemTime>,
+    pub klikcore_newest: Option<SystemTime>,
     pub original_newest: Option<SystemTime>,
 }
 
@@ -74,20 +74,20 @@ pub fn list(fs: &SaveFs) -> Vec<SaveFile> {
     }
     let mut seen = std::collections::HashSet::new();
     let mut files = Vec::new();
-    for rekindle in found {
-        let key = rekindle.to_string_lossy().to_lowercase();
+    for klikcore in found {
+        let key = klikcore.to_string_lossy().to_lowercase();
         if !seen.insert(key) {
             continue;
         }
-        let Some(original) = fs.original_of(&rekindle) else { continue };
+        let Some(original) = fs.original_of(&klikcore) else { continue };
         files.push(SaveFile {
-            rekindle_time: modified(&rekindle),
+            klikcore_time: modified(&klikcore),
             original_time: modified(&original),
-            rekindle,
+            klikcore,
             original,
         });
     }
-    files.sort_by(|a, b| a.rekindle.cmp(&b.rekindle));
+    files.sort_by(|a, b| a.klikcore.cmp(&b.klikcore));
     files
 }
 
@@ -109,15 +109,15 @@ impl Status {
         if self.files == 0 {
             return "No saves yet (the game hasn't saved or loaded anything here).".into();
         }
-        let newer = match (self.rekindle_newest, self.original_newest) {
-            (Some(a), Some(b)) if a > b => " - Rekindle's are newer",
+        let newer = match (self.klikcore_newest, self.original_newest) {
+            (Some(a), Some(b)) if a > b => " - KlikCore's are newer",
             (Some(a), Some(b)) if b > a => " - the original game's are newer",
             _ => "",
         };
         format!(
-            "Rekindle: {} file(s), changed {}.  Original game: {} file(s), changed {}{newer}.",
-            self.in_rekindle,
-            age(self.rekindle_newest),
+            "KlikCore: {} file(s), changed {}.  Original game: {} file(s), changed {}{newer}.",
+            self.in_klikcore,
+            age(self.klikcore_newest),
             self.in_original,
             age(self.original_newest)
         )
@@ -128,9 +128,9 @@ pub fn status(fs: &SaveFs) -> Status {
     let files = list(fs);
     Status {
         files: files.len(),
-        in_rekindle: files.iter().filter(|f| f.rekindle_time.is_some()).count(),
+        in_klikcore: files.iter().filter(|f| f.klikcore_time.is_some()).count(),
         in_original: files.iter().filter(|f| f.original_time.is_some()).count(),
-        rekindle_newest: files.iter().filter_map(|f| f.rekindle_time).max(),
+        klikcore_newest: files.iter().filter_map(|f| f.klikcore_time).max(),
         original_newest: files.iter().filter_map(|f| f.original_time).max(),
     }
 }
@@ -152,8 +152,8 @@ pub fn copy(fs: &SaveFs, dir: Direction) -> Report {
     let mut report = Report::default();
     for f in list(fs) {
         let (src, dst) = match dir {
-            Direction::Import => (&f.original, &f.rekindle),
-            Direction::Export => (&f.rekindle, &f.original),
+            Direction::Import => (&f.original, &f.klikcore),
+            Direction::Export => (&f.klikcore, &f.original),
         };
         let src_exists = src.is_file();
         if !src_exists && !dst.is_file() {
@@ -165,10 +165,10 @@ pub fn copy(fs: &SaveFs, dir: Direction) -> Report {
         // Back up what is about to change, under the area path it has in the save folder.
         if dst.is_file() {
             let side = match dir {
-                Direction::Import => "rekindle",
+                Direction::Import => "klikcore",
                 Direction::Export => "original",
             };
-            let rel = f.rekindle.strip_prefix(&fs.save_root).unwrap_or(&f.rekindle);
+            let rel = f.klikcore.strip_prefix(&fs.save_root).unwrap_or(&f.klikcore);
             let b = backup_root.join(side).join(rel);
             let done = b.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::copy(dst, &b).map(|_| ()));
             if let Err(e) = done {
@@ -196,7 +196,7 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("rekindle-savesync-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("klikcore-savesync-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -216,23 +216,23 @@ mod tests {
         assert_eq!(fs.read("save1.txt").as_deref(), Some(&b"original"[..]));
         let files = list(&fs);
         assert_eq!(files.len(), 1);
-        assert!(files[0].rekindle_time.is_none() && files[0].original_time.is_some());
+        assert!(files[0].klikcore_time.is_none() && files[0].original_time.is_some());
 
-        // Import copies it in; Rekindle then saves its own progress.
+        // Import copies it in; KlikCore then saves its own progress.
         let r = copy(&fs, Direction::Import);
         assert_eq!((r.copied, r.removed), (1, 0));
-        fs.write("save1.txt", b"rekindle").unwrap();
+        fs.write("save1.txt", b"klikcore").unwrap();
         fs.write("save2.txt", b"new file").unwrap();
 
         // Export: the original is backed up, then replaced; the new file is added.
         let r = copy(&fs, Direction::Export);
         assert_eq!((r.copied, r.removed), (2, 0), "{:?}", r.errors);
-        assert_eq!(std::fs::read(game_dir.join("save1.txt")).unwrap(), b"rekindle");
+        assert_eq!(std::fs::read(game_dir.join("save1.txt")).unwrap(), b"klikcore");
         assert_eq!(std::fs::read(game_dir.join("save2.txt")).unwrap(), b"new file");
         let backup = r.backup.unwrap();
         assert_eq!(std::fs::read(backup.join("original").join("app").join("save1.txt")).unwrap(), b"original");
 
-        // Import when the original lost a file: Rekindle's copy is backed up and removed.
+        // Import when the original lost a file: KlikCore's copy is backed up and removed.
         std::fs::remove_file(game_dir.join("save2.txt")).unwrap();
         let r = copy(&fs, Direction::Import);
         assert_eq!((r.copied, r.removed), (0, 1));

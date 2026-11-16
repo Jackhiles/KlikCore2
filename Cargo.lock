@@ -1399,6 +1399,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "klikcore"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "chacha20poly1305",
+ "chrono",
+ "clap",
+ "cpal",
+ "embed-resource",
+ "flate2",
+ "fontdue",
+ "gilrs",
+ "hkdf",
+ "jpeg-decoder",
+ "macroquad",
+ "memmap2",
+ "ndk-context",
+ "png",
+ "rand",
+ "rfd",
+ "serde_json",
+ "sha2",
+ "symphonia",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2002,33 +2029,6 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "rekindle"
-version = "0.1.9"
-dependencies = [
- "anyhow",
- "chacha20poly1305",
- "chrono",
- "clap",
- "cpal",
- "embed-resource",
- "flate2",
- "fontdue",
- "gilrs",
- "hkdf",
- "jpeg-decoder",
- "macroquad",
- "memmap2",
- "ndk-context",
- "png",
- "rand",
- "rfd",
- "serde_json",
- "sha2",
- "symphonia",
- "x25519-dalek",
-]
 
 [[package]]
 name = "rfd"

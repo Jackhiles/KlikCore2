@@ -1,4 +1,4 @@
-//! Per-game player settings, in `<data dir>\Rekindle\settings\<game file name>.ini`
+//! Per-game player settings, in `<data dir>\KlikCore\settings\<game file name>.ini`
 //! (edited by the launcher, and by F9 / F10 / F11 in game).
 
 use std::path::{Path, PathBuf};
@@ -108,7 +108,7 @@ pub struct Settings {
     pub pad_speed: u8,
     /// Button remaps, e.g. ("south", "13") or ("rt", "click"); see `render::gamepad`.
     pub pad_map: Vec<(String, String)>,
-    /// On-screen touch controls (Android, or desktop with REKINDLE_TOUCH_CONTROLS=1).
+    /// On-screen touch controls (Android, or desktop with KLIKCORE_TOUCH_CONTROLS=1).
     pub touch_controls: TouchMode,
     path: Option<PathBuf>,
 }
@@ -140,23 +140,23 @@ impl Settings {
     }
 
     /// Load a game's settings. `legacy_dir` is the game's save folder, where older versions
-    /// kept `rekindle.ini`; it is read if the new file doesn't exist yet.
+    /// kept `klikcore.ini`; it is read if the new file doesn't exist yet.
     pub fn for_game(game: &Path, legacy_dir: Option<&Path>) -> Self {
         let path = Self::path_for(game);
         let mut s = Self { path: Some(path.clone()), ..Self::default() };
         let text = std::fs::read_to_string(&path)
             .ok()
-            .or_else(|| legacy_dir.and_then(|d| std::fs::read_to_string(d.join("rekindle.ini")).ok()));
+            .or_else(|| legacy_dir.and_then(|d| std::fs::read_to_string(d.join("klikcore.ini")).ok()));
         if let Some(text) = text {
             s.apply(&text);
         }
         s.with_env_overrides()
     }
 
-    /// Testing: REKINDLE_SETTINGS="filter=hd;window_scale=3" overrides settings for this
+    /// Testing: KLIKCORE_SETTINGS="filter=hd;window_scale=3" overrides settings for this
     /// run (written back only if the player changes a setting in game).
     pub fn with_env_overrides(mut self) -> Self {
-        if let Ok(o) = std::env::var("REKINDLE_SETTINGS") {
+        if let Ok(o) = std::env::var("KLIKCORE_SETTINGS") {
             self.apply(&o.replace(';', "
 "));
         }
@@ -191,7 +191,7 @@ impl Settings {
     }
 
     pub fn to_text(&self) -> String {
-        let mut text = String::from("[rekindle]\n");
+        let mut text = String::from("[klikcore]\n");
         match self.fullscreen {
             Some(f) => text += &format!("fullscreen={}\n", f as u8),
             None => text += "fullscreen=default\n",
@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(t.touch_controls, TouchMode::Off);
         assert_eq!(Settings::default().touch_controls, TouchMode::Auto);
         let mut old = Settings::default();
-        old.apply("[rekindle]\nfullscreen=0\nsmooth=0\n");
+        old.apply("[klikcore]\nfullscreen=0\nsmooth=0\n");
         assert_eq!((old.fullscreen, old.filter), (Some(false), Filter::Sharp));
     }
 }

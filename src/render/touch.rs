@@ -11,9 +11,9 @@
 //! the pointer and holds the left button. A small toggle at the top right hides or shows the
 //! controls (remembered per game as `touch_controls` in the game's settings).
 //!
-//! On by default on Android; on the desktop with `REKINDLE_TOUCH_CONTROLS=1` (the mouse then
+//! On by default on Android; on the desktop with `KLIKCORE_TOUCH_CONTROLS=1` (the mouse then
 //! acts as one finger), `=demo` to show some controls held (for screenshots) or `=debug` to
-//! also print the keys found in each frame. `REKINDLE_TOUCH_CONTROLS=0` turns them off.
+//! also print the keys found in each frame. `KLIKCORE_TOUCH_CONTROLS=0` turns them off.
 
 use super::settings::{Settings, TouchMode};
 use crate::ctf_loader::events::{Ace, Events, Param, TokenValue};
@@ -537,7 +537,7 @@ const MOUSE_ID: u64 = u64::MAX;
 
 impl TouchControls {
     pub fn new(game: &GameData, s: &Settings) -> Self {
-        let env = std::env::var("REKINDLE_TOUCH_CONTROLS").unwrap_or_default();
+        let env = std::env::var("KLIKCORE_TOUCH_CONTROLS").unwrap_or_default();
         let on = if env.is_empty() { cfg!(target_os = "android") } else { !matches!(env.as_str(), "0" | "off") };
         let per_frame = frame_keys(game);
         let mut all = KeyCounts::default();

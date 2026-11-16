@@ -60,9 +60,9 @@ pub fn window_conf(g: &GameData, s: &settings::Settings) -> Conf {
     };
     Conf {
         window_title: if g.name.is_empty() {
-            "Rekindle".into()
+            "KlikCore 2".into()
         } else {
-            format!("{} - Rekindle", g.name)
+            format!("{} - KlikCore 2", g.name)
         },
         window_width: (w * scale) as i32,
         window_height: (h * scale) as i32,
@@ -620,10 +620,10 @@ impl AtlasPage {
     }
 }
 
-/// Textures kept on the GPU at most (roughly; `REKINDLE_TEXTURE_MB` overrides it).
+/// Textures kept on the GPU at most (roughly; `KLIKCORE_TEXTURE_MB` overrides it).
 fn texture_budget() -> usize {
     static B: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *B.get_or_init(|| std::env::var("REKINDLE_TEXTURE_MB").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(192) << 20)
+    *B.get_or_init(|| std::env::var("KLIKCORE_TEXTURE_MB").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(192) << 20)
 }
 
 impl Textures {
@@ -1139,7 +1139,7 @@ impl Viewer {
         self.log_unimplemented();
     }
 
-    /// The game asked to run another program. A Clickteam game opens in a new Rekindle
+    /// The game asked to run another program. A Clickteam game opens in a new KlikCore
     /// window (launchers that start the real game); on Windows anything else starts as the
     /// original runtime would start it.
     fn launch_program(&mut self, path: &std::path::Path, args: &str) {
@@ -1565,7 +1565,7 @@ impl Viewer {
             }
             Visual::Effect { params, .. } => {
                 static NO_EFFECTS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-                if *NO_EFFECTS.get_or_init(|| std::env::var_os("REKINDLE_NO_EFFECTS").is_some()) {
+                if *NO_EFFECTS.get_or_init(|| std::env::var_os("KLIKCORE_NO_EFFECTS").is_some()) {
                     return;
                 }
                 let Some(off) = &self.offscreen else { return };
@@ -1750,10 +1750,10 @@ pub fn take_next_game() -> Option<PathBuf> {
     NEXT_GAME.lock().unwrap_or_else(|e| e.into_inner()).take()
 }
 
-/// Items drawn (after culling), for REKINDLE_PROFILE.
+/// Items drawn (after culling), for KLIKCORE_PROFILE.
 static DRAWN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// Per-part frame timing for REKINDLE_PROFILE.
+/// Per-part frame timing for KLIKCORE_PROFILE.
 #[derive(Default)]
 struct FrameProfile {
     sum: [std::time::Duration; 4],
@@ -1810,14 +1810,14 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         fit: opts.fit,
         show_hidden: opts.show_hidden,
         debug_boxes: false,
-        // REKINDLE_HUD=compact|full|inspect overrides (also for screenshots).
-        hud: match std::env::var("REKINDLE_HUD").as_deref() {
+        // KLIKCORE_HUD=compact|full|inspect overrides (also for screenshots).
+        hud: match std::env::var("KLIKCORE_HUD").as_deref() {
             Ok("compact") => hud::HudMode::Compact,
             Ok("full") | Ok("inspect") => hud::HudMode::Full,
             _ if opts.screenshot.is_none() && opts.settings.hud => hud::HudMode::Full,
             _ => hud::HudMode::Off,
         },
-        inspector: std::env::var("REKINDLE_HUD").as_deref() == Ok("inspect"),
+        inspector: std::env::var("KLIKCORE_HUD").as_deref() == Ok("inspect"),
         speed_index: hud::NORMAL_SPEED,
         stats: hud::HudStats::default(),
         hud_font: load_ttf_font_from_bytes(crate::launcher::FONT_REGULAR).ok(),
@@ -1921,12 +1921,12 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
     prevent_quit();
     let started = chrono::Local::now();
     let clock = std::time::Instant::now();
-    // Benchmarking: REKINDLE_WALK_FRAMES=<ms> shows every frame for that long, then exits.
-    let walk = std::env::var("REKINDLE_WALK_FRAMES").ok().and_then(|v| v.parse::<f64>().ok());
+    // Benchmarking: KLIKCORE_WALK_FRAMES=<ms> shows every frame for that long, then exits.
+    let walk = std::env::var("KLIKCORE_WALK_FRAMES").ok().and_then(|v| v.parse::<f64>().ok());
     let mut walk_next = get_time();
     let mut walk_frame = 0usize;
-    // REKINDLE_PROFILE: average time per frame in each part of the loop, every few seconds.
-    let mut frame_profile = std::env::var_os("REKINDLE_PROFILE").map(|_| FrameProfile::default());
+    // KLIKCORE_PROFILE: average time per frame in each part of the loop, every few seconds.
+    let mut frame_profile = std::env::var_os("KLIKCORE_PROFILE").map(|_| FrameProfile::default());
     // Android: Back is Escape for the game; pressed twice within a second it quits to the launcher.
     #[cfg(target_os = "android")]
     let mut last_back = f64::NEG_INFINITY;

@@ -1,7 +1,7 @@
 //! Replacement packs: files that override a game's images and sounds without touching the
 //! game itself.
 //!
-//! Layout: `<data dir>\Rekindle\mods\<game file name>\` holding `images\` / `sounds\` folders,
+//! Layout: `<data dir>\KlikCore\mods\<game file name>\` holding `images\` / `sounds\` folders,
 //! either directly or inside any number of pack folders (applied in alphabetical order, so
 //! later packs win). A file named `123.png` (or `123_anything.png`, as `--extract` names
 //! them) replaces image 123; `45.wav` / `.ogg` / `.mp3` replaces sound 45.
@@ -21,12 +21,12 @@ pub struct Mods {
     pub packs: Vec<String>,
 }
 
-const README: &str = "Rekindle replacement packs for this game.\r\n\r\n\
+const README: &str = "KlikCore replacement packs for this game.\r\n\r\n\
 Put files in an \"images\" or \"sounds\" folder here, or inside a pack folder of your choice\r\n\
 (e.g. \"HD textures\\images\\\"). Packs are applied in alphabetical order; later ones win.\r\n\r\n\
   images\\123.png        replaces image 123\r\n\
   sounds\\45.wav         replaces sound 45 (.ogg and .mp3 work too)\r\n\r\n\
-To find the numbers, export the game's files with:  rekindle \"<game file>\" --extract <folder>\r\n\
+To find the numbers, export the game's files with:  klikcore \"<game file>\" --extract <folder>\r\n\
 Exported names like 123_name.png can be dropped back in as they are.\r\n\
 Replacement images are drawn at the original size, so larger images simply look sharper.\r\n";
 
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn later_packs_win_and_extracted_names_work() {
-        let dir = std::env::temp_dir().join(format!("rekindle-mods-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("klikcore-mods-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (pack, file) in [("", "images/7.png"), ("a pack", "images/7_title.png"), ("b pack", "sounds/3_click.wav")] {
             let p = if pack.is_empty() { dir.join(file) } else { dir.join(pack).join(file) };

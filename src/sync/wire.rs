@@ -91,6 +91,9 @@ fn nonce(n: u64) -> Nonce {
     *Nonce::from_slice(&b)
 }
 
+// The protocol's labels below still say "rekindle" (the project's earlier name): they are
+// part of what both devices compute, so changing them would break existing pairings and
+// pairing with older versions.
 fn session_keys(pair_key: &[u8; 32], client_nonce: &[u8], server_nonce: &[u8]) -> ([u8; 32], [u8; 32]) {
     let salt = [client_nonce, server_nonce].concat();
     let hk = Hkdf::<Sha256>::new(Some(&salt), pair_key);

@@ -1,5 +1,5 @@
-"""Draw Rekindle's icon: writes rekindle.svg (the design), rekindle-256.png and
-rekindle.ico (16-256 px) next to this script. Needs Pillow: `python make_icon.py`."""
+"""Draw KlikCore's icon: writes klikcore.svg (the design), klikcore-256.png and
+klikcore.ico (16-256 px) next to this script. Needs Pillow: `python make_icon.py`."""
 
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
@@ -91,13 +91,13 @@ def write_svg():
   <path d="{svg_path(INNER)}" fill="url(#inner)"/>
 </svg>
 '''
-    (HERE / "rekindle.svg").write_text(svg, encoding="utf-8")
+    (HERE / "klikcore.svg").write_text(svg, encoding="utf-8")
 
 
 if __name__ == "__main__":
     write_svg()
     big = render(256)
-    big.save(HERE / "rekindle-256.png")
+    big.save(HERE / "klikcore-256.png")
     sizes = [16, 24, 32, 48, 64, 128, 256]
-    render(256).save(HERE / "rekindle.ico", sizes=[(n, n) for n in sizes])
-    print("wrote rekindle.svg, rekindle-256.png, rekindle.ico")
+    render(256).save(HERE / "klikcore.ico", sizes=[(n, n) for n in sizes])
+    print("wrote klikcore.svg, klikcore-256.png, klikcore.ico")

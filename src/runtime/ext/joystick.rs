@@ -4,7 +4,7 @@
 //! joystick (condition 2), and test analog sticks as distance from the centre (32767), so:
 //! condition 2 is true, other conditions (buttons, POV directions) are false, the X / Y
 //! axis expressions (0, 1) are centred and other expressions are 0. Real gamepads still
-//! work through Rekindle's own controller support, which presses the game's keys.
+//! work through KlikCore's own controller support, which presses the game's keys.
 
 use super::Extension;
 use crate::ctf_loader::events::Comparison;

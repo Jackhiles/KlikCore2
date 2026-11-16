@@ -1,5 +1,5 @@
 //! Save files to sync: every file in the mapped areas (`app`, `appdata`, `other`) of each
-//! game's Rekindle save folder (`<data dir>/Rekindle/<game>/`). Folders keep the same
+//! game's KlikCore save folder (`<data dir>/KlikCore/<game>/`). Folders keep the same
 //! names on every device, so a game's saves line up wherever it runs.
 //!
 //! Plan for one device pair: files only one side has are copied over, unless the last

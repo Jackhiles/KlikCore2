@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Build Rekindle for Android: a signed APK in target/android/.
+"""Build KlikCore for Android: a signed APK in target/android/.
 
     python scripts/android/build.py [--release] [--abi arm64-v8a,armeabi-v7a,x86_64]
 
-The crate's library is built as `librekindle.so` with the NDK's clang, miniquad's Java
+The crate's library is built as `libklikcore.so` with the NDK's clang, miniquad's Java
 activity is compiled and dexed, and everything is packed into an APK with the Android
 SDK's build tools (aapt2, d8, zipalign, apksigner). Python standard library only.
 
@@ -13,7 +13,7 @@ ANDROID_NDK_LATEST_HOME (NDK; default: the newest under <sdk>/ndk), JAVA_HOME (j
 keytool), CARGO (cargo).
 
 Signing: a debug keystore is made in target/android/ on first use. To sign with your
-own key set REKINDLE_KEYSTORE, REKINDLE_KEYSTORE_PASS and REKINDLE_KEY_ALIAS.
+own key set KLIKCORE_KEYSTORE, KLIKCORE_KEYSTORE_PASS and KLIKCORE_KEY_ALIAS.
 """
 
 import argparse
@@ -28,8 +28,8 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGE = "com.takobyte.rekindle"
-LIB_NAME = "rekindle"
+PACKAGE = "com.takobyte.klikcore"
+LIB_NAME = "klikcore"
 MIN_SDK = 24
 TARGET_SDK = 35
 WINDOWS = os.name == "nt"
@@ -186,7 +186,7 @@ def miniquad_java_dir(cargo):
     die("miniquad's Java sources not found")
 
 
-SURFACE_SCALE = """    // Rekindle: pixels of the view per pixel of the surface (touch is divided by it).
+SURFACE_SCALE = """    // KlikCore: pixels of the view per pixel of the surface (touch is divided by it).
     float scale = 1.0f;
     boolean uiScale = true;
 
@@ -240,7 +240,7 @@ SURFACE_SCALE = """    // Rekindle: pixels of the view per pixel of the surface 
 
 """
 
-ACTIVITY_SCALE = """    // Rekindle: lower-resolution (readable) launcher UI on, or full resolution for games.
+ACTIVITY_SCALE = """    // KlikCore: lower-resolution (readable) launcher UI on, or full resolution for games.
     public void setUiScale(final boolean on) {
         runOnUiThread(new Runnable() {
                 @Override
@@ -291,7 +291,7 @@ SHORTCUTS = """    String launchGame = null;
 
     void takeGameFrom(Intent i) {
         if (i != null) {
-            String g = i.getStringExtra("rekindle_game");
+            String g = i.getStringExtra("klikcore_game");
             if (g != null) {
                 launchGame = g;
             }
@@ -329,7 +329,7 @@ SHORTCUTS = """    String launchGame = null;
         }
         Intent intent = new Intent(this, MainActivity.class);
         intent.setAction(Intent.ACTION_VIEW);
-        intent.putExtra("rekindle_game", gamePath);
+        intent.putExtra("klikcore_game", gamePath);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         android.content.pm.ShortcutInfo.Builder b = new android.content.pm.ShortcutInfo.Builder(this, id)
             .setShortLabel(label)
@@ -344,7 +344,7 @@ SHORTCUTS = """    String launchGame = null;
         try {
             return sm.requestPinShortcut(b.build(), null);
         } catch (Exception e) {
-            Log.w("Rekindle", "pinShortcut: " + e);
+            Log.w("KlikCore", "pinShortcut: " + e);
             return false;
         }
     }
@@ -402,7 +402,7 @@ def write_java(src_dir, out_dir):
         "    protected void onResume() {\n        super.onResume();\n        hideSystemBars();",
     )
     activity = activity.replace(anchors[1], IMMERSIVE + SHORTCUTS + anchors[1])
-    # Back always goes to Rekindle (as the key it is), never to Android's default (which
+    # Back always goes to KlikCore (as the key it is), never to Android's default (which
     # put the app in the background mid-game when the view didn't have focus). The
     # launcher leaves the app itself (goHome) when Back is pressed on the library.
     back = "        super.onBackPressed();"
@@ -430,11 +430,11 @@ def platform_jar(sdk):
 
 
 def ensure_keystore(keytool, out):
-    if os.environ.get("REKINDLE_KEYSTORE"):
+    if os.environ.get("KLIKCORE_KEYSTORE"):
         return (
-            Path(os.environ["REKINDLE_KEYSTORE"]),
-            os.environ.get("REKINDLE_KEYSTORE_PASS") or "",
-            os.environ.get("REKINDLE_KEY_ALIAS") or "rekindle",
+            Path(os.environ["KLIKCORE_KEYSTORE"]),
+            os.environ.get("KLIKCORE_KEYSTORE_PASS") or "",
+            os.environ.get("KLIKCORE_KEY_ALIAS") or "klikcore",
         )
     ks = out / "debug.keystore"
     if not ks.is_file():
@@ -448,7 +448,7 @@ def ensure_keystore(keytool, out):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--release", action="store_true", help="optimised build (rekindle-release.apk)")
+    ap.add_argument("--release", action="store_true", help="optimised build (klikcore-release.apk)")
     ap.add_argument("--abi", default="arm64-v8a", help="comma-separated: " + ", ".join(ABIS))
     ap.add_argument("--keep-debug-info", action="store_true", help="don't strip debug info from the library")
     args = ap.parse_args()
@@ -523,7 +523,7 @@ def main():
             z.write(so, f"lib/{abi}/{so.name}", compress_type=zipfile.ZIP_STORED)
 
     # 5. Align (16 KB pages for the libraries) and sign.
-    name = "rekindle-release.apk" if args.release else "rekindle-debug.apk"
+    name = "klikcore-release.apk" if args.release else "klikcore-debug.apk"
     apk = out / name
     run([exe(build_tools / "zipalign"), "-f", "-P", "16", "4", unaligned, apk])
     ks, ks_pass, alias = ensure_keystore(keytool, out)

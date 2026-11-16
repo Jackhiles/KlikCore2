@@ -1,4 +1,6 @@
-# Rekindle
+# KlikCore 2
+
+*(Formerly Rekindle. Data from earlier versions moves over automatically; paired devices keep working.)*
 
 A clean-room, open-source runtime for games built with Clickteam Fusion 2.5 and Multimedia Fusion 1.5, written in Rust.
 It works the way ScummVM or OpenMW do: this repository is only the engine. It contains
@@ -46,7 +48,7 @@ The event interpreter runs each frame's event sheet at the game's frame rate:
 - **Effects**: the Perspective object warps whatever is drawn beneath it (panorama, perspective, sine wave, sine offset) with a GPU shader. Ink effects: semi-transparency, tint / alpha coefficients, add, subtract, invert, and AND / OR / XOR approximated with multiply / screen / difference blending.
 
 ### Audio and HUD objects
-- **Sound**: play sample (once, looped N times, on a channel), stop / pause / resume sample, channel or all, main / sample / channel volume, and the "sample / channel not playing" conditions. All bank formats (WAV PCM/ADPCM, OGG Vorbis, MP3) are decoded with `symphonia` and streamed: each playing sound has a decoder thread that stays a fraction of a second ahead of Rekindle's mixer (`cpal` output), so long music never sits in memory as decoded PCM. Pan, volume, resume after pause and "set position" are applied while streaming; frequency changes and the MIDI music bank are not supported yet. `--mute` turns sound off.
+- **Sound**: play sample (once, looped N times, on a channel), stop / pause / resume sample, channel or all, main / sample / channel volume, and the "sample / channel not playing" conditions. All bank formats (WAV PCM/ADPCM, OGG Vorbis, MP3) are decoded with `symphonia` and streamed: each playing sound has a decoder thread that stays a fraction of a second ahead of KlikCore's mixer (`cpal` output), so long music never sits in memory as decoded PCM. Pan, volume, resume after pause and "set position" are applied while streaming; frequency changes and the MIDI music bank are not supported yet. `--mute` turns sound off.
 - **Counters, Score, Lives**: digit images, horizontal / vertical bars, image-per-value ("animation") and text display, with their min / max clamping. Score and Lives show the player's score and lives.
 - **String objects**: their paragraph text, colour and alignment, with word wrap. Game data only names fonts (face, size, weight), so the runtime looks the face up among the system's installed fonts (Windows `Fonts` folders, common Linux / macOS folders) and falls back to a default font.
 
@@ -64,95 +66,95 @@ Extension objects (`.mfx` files) are reimplemented natively in `src/runtime/ext/
 - **Control X** (`ctrlx`): "key pressed" by key name, for games that let players rebind keys.
 - **File** (`kcfile`): file / folder exists, create a folder or an empty file (in the save sandbox), and the user's Documents folder.
 - **Joypad object** (`joystick`): reported as a connected controller with nothing pressed, which keeps such games'
-  keyboard controls working; gamepads still work through Rekindle's own controller support.
+  keyboard controls working; gamepads still work through KlikCore's own controller support.
 - **ControlIME** (Japanese text input mode) is accepted and does nothing.
 
-Games write their files through a sandbox. Writes go to `%APPDATA%\Rekindle\<game>\` (override with `--save-dir`), split into `app\` for paths under the game folder and `appdata\` for AppData paths. Reads check the sandbox first and then the real location, so saves from the original game are picked up but never modified. On Windows that includes the VirtualStore (`%LOCALAPPDATA%\VirtualStore`), where old games' saves to protected places such as `C:\` really end up.
+Games write their files through a sandbox. Writes go to `%APPDATA%\KlikCore\<game>\` (override with `--save-dir`), split into `app\` for paths under the game folder and `appdata\` for AppData paths. Reads check the sandbox first and then the real location, so saves from the original game are picked up but never modified. On Windows that includes the VirtualStore (`%LOCALAPPDATA%\VirtualStore`), where old games' saves to protected places such as `C:\` really end up.
 
-To move progress between Rekindle and the original game, open a game's **Settings** in the launcher and use the **Saves** row: *Use original game's saves* replaces Rekindle's copies with the original game's, *Copy to original game* does the reverse (each needs a second click). Whatever gets replaced or removed is first copied to `backups\<time>\` in the game's Rekindle folder. From the command line: `rekindle <GAME> --saves status|import|export`. The save manager knows a game's files from its Rekindle folder and from the original files the game has read (listed in `original-files.txt`).
+To move progress between KlikCore and the original game, open a game's **Settings** in the launcher and use the **Saves** row: *Use original game's saves* replaces KlikCore's copies with the original game's, *Copy to original game* does the reverse (each needs a second click). Whatever gets replaced or removed is first copied to `backups\<time>\` in the game's KlikCore folder. From the command line: `klikcore <GAME> --saves status|import|export`. The save manager knows a game's files from its KlikCore folder and from the original files the game has read (listed in `original-files.txt`).
 
 Anything not implemented yet is counted rather than crashing: see the HUD or `--headless`. Extension objects (`ext:...`) are the most common gap.
 
 ### Getting started
-Run `build.cmd` (Windows) or `./build.sh` (Linux / Steam Deck). It builds Rekindle and puts **`Rekindle.exe`**
-(or `Rekindle`) in this folder: double-click it to open the launcher. Re-running the script while Rekindle is open is
+Run `build.cmd` (Windows) or `./build.sh` (Linux / Steam Deck). It builds KlikCore and puts **`KlikCore.exe`**
+(or `KlikCore`) in this folder: double-click it to open the launcher. Re-running the script while KlikCore is open is
 fine. (`cargo build --release` alone leaves the program in `target/release/`.)
 
 ### Launcher
-Run `rekindle` without a game to open the launcher: a grid of game covers with the selected game's details beside it.
+Run `klikcore` without a game to open the launcher: a grid of game covers with the selected game's details beside it.
 Covers and banners come from Steam's library artwork when the game is a Steam game, otherwise they are generated from
-the game's own images (cached in `%APPDATA%\Rekindlert\`; *Refresh artwork* in a game's menu makes them again).
+the game's own images (cached in `%APPDATA%\KlikCorert\`; *Refresh artwork* in a game's menu makes them again).
 Type to search; arrow keys / D-pad move, Enter / A plays, Y opens settings. **+ Add** adds a game file, a folder of
-games (also `rekindle --add FILE_OR_FOLDER`) or Steam games; the **...** menu has Steam games, the play log and the data
-folder. A game's own **...** menu has Add to Steam, Desktop shortcut (also `rekindle GAME --shortcut`), Mods folder,
-Open game folder and Remove from library (the files are untouched). Double-click a cover to play. When a game runs another program (launchers that start the real game), a Clickteam game opens in a new Rekindle window; on Windows other programs start as they would with the original runtime. Only one copy
+games (also `klikcore --add FILE_OR_FOLDER`) or Steam games; the **...** menu has Steam games, the play log and the data
+folder. A game's own **...** menu has Add to Steam, Desktop shortcut (also `klikcore GAME --shortcut`), Mods folder,
+Open game folder and Remove from library (the files are untouched). Double-click a cover to play. When a game runs another program (launchers that start the real game), a Clickteam game opens in a new KlikCore window; on Windows other programs start as they would with the original runtime. Only one copy
 of a game runs at a time, and while a game started from the launcher is running, the launcher ignores the controller.
-`REKINDLE_LAUNCHER_SHOT=file.png` saves the launcher window once artwork has loaded and exits (for testing; `REKINDLE_LAUNCHER_PAGE=settings|steam|log` opens a page first).
+`KLIKCORE_LAUNCHER_SHOT=file.png` saves the launcher window once artwork has loaded and exits (for testing; `KLIKCORE_LAUNCHER_PAGE=settings|steam|log` opens a page first).
 
-**Steam** (shown when Steam is installed; also `rekindle GAME --add-to-steam`) adds the game to Steam as a non-Steam
-shortcut that starts it with Rekindle, with the game's icon. If the game is or was a Steam game (installed through
+**Steam** (shown when Steam is installed; also `klikcore GAME --add-to-steam`) adds the game to Steam as a non-Steam
+shortcut that starts it with KlikCore, with the game's icon. If the game is or was a Steam game (installed through
 Steam, or copied out of a Steam library into a folder named after it), its store artwork (capsule, header, hero and
 logo) is copied from Steam's cache; other games get artwork made from the game itself (its most detailed
-full-screen picture with its icon and title). The shortcut is named "<title> (Rekindle)" and tagged for a "Rekindle"
+full-screen picture with its icon and title). The shortcut is named "<title> (KlikCore)" and tagged for a "KlikCore"
 collection. Steam only reads its shortcuts when it starts and may overwrite the file while
 open, so a running Steam is closed and started again around the change (in Steam's Gaming Mode, where that isn't
-possible, the shortcut appears after the next restart). The original file is kept as `shortcuts.vdf.rekindle-backup`. Release builds of the launcher also add **Rekindle itself** to
+possible, the shortcut appears after the next restart). The original file is kept as `shortcuts.vdf.klikcore-backup`. Release builds of the launcher also add **KlikCore itself** to
 Steam when it isn't there yet: quietly when Steam is closed, otherwise the status bar offers it (Add / Not now /
 Don't ask again, saved as `add_self_to_steam=never` in `launcher.ini`).
 
 **Steam games** finds Clickteam Fusion games installed through Steam (all Steam libraries; on Linux also Flatpak
 Steam) and adds them, either linked where Steam installed them or copied into a storage folder you choose (so they
 keep working after uninstalling from Steam). Copies from Steam are marked "(Steam)" in the library. From the command
-line, `rekindle --find-steam` lists them.
+line, `klikcore --find-steam` lists them.
 
 ### Devices and save sync
-Rekindle on several devices on the same network (PCs, Steam Deck, phone) can pair and keep their saves in sync. Open
-**... > Devices and sync** in the launcher: other devices running Rekindle appear under *On this network*; press
+KlikCore on several devices on the same network (PCs, Steam Deck, phone) can pair and keep their saves in sync. Open
+**... > Devices and sync** in the launcher: other devices running KlikCore appear under *On this network*; press
 **Pair** and check that both screens show the same 6-digit code. Paired devices then sync saves automatically when the
 launcher opens and when you close a game: files only one device has are copied, the newer version of a changed file wins,
 deletions are followed, and anything replaced or deleted is backed up to `<game>/backups/sync-<time>/` first. A game
 that is running on either device is skipped. **Games** on a paired device lists its library and copies a game here
 (into `<data dir>/games/`), which is how games get onto a phone.
 
-Broadcasts don't cross between subnets (for example a PC on `192.168.1.x` and a phone on `192.168.2.x`): use **Add by address** on the Devices page with the other device's address (each device shows its own there); paired devices then find each other directly. Devices find each other with UDP broadcasts on port 48631 and talk over TCP port 48632 (allow Rekindle through the
+Broadcasts don't cross between subnets (for example a PC on `192.168.1.x` and a phone on `192.168.2.x`): use **Add by address** on the Devices page with the other device's address (each device shows its own there); paired devices then find each other directly. Devices find each other with UDP broadcasts on port 48631 and talk over TCP port 48632 (allow KlikCore through the
 firewall when asked). Pairing is an X25519 key exchange confirmed by comparing the code; after that every connection is
 authenticated and encrypted (ChaCha20-Poly1305) with the paired key. Only paired devices can read saves or game files.
-Without the launcher: `rekindle --sync list`, `--sync pair ID`, `--sync sync`, `--sync games ID`, `--sync fetch ID` (with `REKINDLE_FETCH=<number>`), `--sync serve`.
+Without the launcher: `klikcore --sync list`, `--sync pair ID`, `--sync sync`, `--sync games ID`, `--sync fetch ID` (with `KLIKCORE_FETCH=<number>`), `--sync serve`.
 
-Play time is logged per session in `%APPDATA%\Rekindle\playtime.tsv`; the launcher shows each game's total and last
-play, and **Play log** lists every session. **Open folder** opens the Rekindle folder with saves, the play log and each
-game's `rekindle.log`. A game's own "end application" action closes its window.
+Play time is logged per session in `%APPDATA%\KlikCore\playtime.tsv`; the launcher shows each game's total and last
+play, and **Play log** lists every session. **Open folder** opens the KlikCore folder with saves, the play log and each
+game's `klikcore.log`. A game's own "end application" action closes its window.
 
 ### Updates
 Release builds of the launcher check GitHub for a newer release when they start and offer an **Update to vX** button
 (download, swap in, restart). Copies run from a Cargo `target` folder never update themselves; set
-`REKINDLE_NO_UPDATE_CHECK=1` to turn the check off. Releases are built by GitHub Actions when a `v*` tag is pushed
+`KLIKCORE_NO_UPDATE_CHECK=1` to turn the check off. Releases are built by GitHub Actions when a `v*` tag is pushed
 (see `.github/workflows/release.yml`).
 
 ### Linux and Steam Deck
-Download `Rekindle-x86_64.AppImage` (with icon and app-menu entry; on the Steam Deck, Gear Lever adds it to the menu
-in one click) or the plain `rekindle-linux-x86_64` from the releases page, make it executable (`chmod +x ...`) and
+Download `KlikCore-x86_64.AppImage` (with icon and app-menu entry; on the Steam Deck, Gear Lever adds it to the menu
+in one click) or the plain `klikcore-linux-x86_64` from the releases page, make it executable (`chmod +x ...`) and
 run it; on the Deck, do that in desktop mode and add it to Steam as a non-Steam game to use it in game mode. Steam
 Input's keyboard-and-mouse templates map the Deck's controls for the games. Add games with "Add folder..." (uses the
-desktop's own picker, kdialog or zenity) or `rekindle-linux-x86_64 --add ~/Games`.
+desktop's own picker, kdialog or zenity) or `klikcore-linux-x86_64 --add ~/Games`.
 
 ### Android
-An APK for 64-bit ARM phones and tablets (`rekindle-android-arm64.apk`) is attached to each release. To build it
+An APK for 64-bit ARM phones and tablets (`klikcore-android-arm64.apk`) is attached to each release. To build it
 yourself you need the Android SDK (build-tools and a platform), the NDK, a JDK (17 or newer) and
 `rustup target add aarch64-linux-android`; then run
 
-    python scripts/android/build.py            # target/android/rekindle-debug.apk
-    python scripts/android/build.py --release  # target/android/rekindle-release.apk
+    python scripts/android/build.py            # target/android/klikcore-debug.apk
+    python scripts/android/build.py --release  # target/android/klikcore-release.apk
 
 The script finds the tools through `ANDROID_HOME`, `ANDROID_NDK_HOME` and `JAVA_HOME` (or their usual install
 folders), builds the crate's library for Android, and packs it with miniquad's Java activity into a signed APK (a
 debug key is made in `target/android/` on first use; `--abi arm64-v8a,armeabi-v7a,x86_64` builds more ABIs). Install
-it with `adb install target/android/rekindle-debug.apk`.
+it with `adb install target/android/klikcore-debug.apk`.
 
 There is no file picker on Android: on start the launcher adds the Fusion games it finds in
-`Android/data/com.takobyte.rekindle/files/games/` (reachable from a PC over USB, or
-`adb push MyGame /sdcard/Android/data/com.takobyte.rekindle/files/games/`) and in the app's private
-`files/Rekindle/games/` folder. Saves, settings and the library live in the app's private `files/Rekindle/` folder.
+`Android/data/com.takobyte.klikcore/files/games/` (reachable from a PC over USB, or
+`adb push MyGame /sdcard/Android/data/com.takobyte.klikcore/files/games/`) and in the app's private
+`files/KlikCore/games/` folder. Saves, settings and the library live in the app's private `files/KlikCore/` folder.
 Games run inside the app; touch acts as the mouse, Back is Escape, and Back twice within a second returns to the
 launcher. Games played with the keyboard get on-screen controls: the keys a game tests are found in its events and
 movements, arrow keys (or W A S D) become a D-pad at the bottom left and up to six other keys, most used first, become
@@ -161,9 +163,9 @@ played with the controls or point-and-click: frames where the player steers a mo
 the controls, otherwise the frame's key tests are weighed against its pointer use (clicks, mouse-over, reading the
 pointer position, mouse-following objects, buttons and lists), ignoring keys and pointer use shared by most frames
 (global shortcuts, cursor objects). Point-and-click frames hide the controls and taps are the mouse.
-`REKINDLE_TOUCH_CONTROLS=debug` prints each frame's verdict. The small button at the top right hides
+`KLIKCORE_TOUCH_CONTROLS=debug` prints each frame's verdict. The small button at the top right hides
 or shows them (remembered per game, `touch_controls=auto|on|off` in the game's settings file). On a PC,
-`REKINDLE_TOUCH_CONTROLS=1` shows them too (the mouse acts as a finger). Sound uses Android's audio (Oboe). Not available on Android: controllers, file dialogs, desktop
+`KLIKCORE_TOUCH_CONTROLS=1` shows them too (the mouse acts as a finger). Sound uses Android's audio (Oboe). Not available on Android: controllers, file dialogs, desktop
 shortcuts, Steam, the self-updater, and games that start Windows programs.
 
 ### Controllers
@@ -178,14 +180,14 @@ On by default; per game in the launcher's **Settings** (on/off, left stick as ar
 | A / Start, B, X, Y | Enter, Space, Ctrl, Shift |
 | Back / Select | Escape |
 
-Remap buttons in the game's settings file (`%APPDATA%\Rekindle\settings\<game>.ini`) with lines like `pad_south=32`
+Remap buttons in the game's settings file (`%APPDATA%\KlikCore\settings\<game>.ini`) with lines like `pad_south=32`
 (button: `south east west north start select lb rb lt rt l3 r3 up down left right`; value: a Windows key code,
 `click`, `rclick` or `none`). The launcher itself works with a controller too: up / down to pick a game, A to play,
 Y for its settings, B to close a panel.
 
 ### Mods (replacement packs)
 Images and sounds can be replaced without touching the game. Each game has a mods folder,
-`%APPDATA%\Rekindle\mods\<game file name>\` (the launcher's **Mods** button creates and opens it, with a how-to):
+`%APPDATA%\KlikCore\mods\<game file name>\` (the launcher's **Mods** button creates and opens it, with a how-to):
 
 ```text
 mods\MyGame\imagesS.png              replaces image 123
@@ -193,19 +195,19 @@ mods\MyGame\HD pack\imagesS.png      ...or inside any pack folder (packs apply i
 mods\MyGame\sounds%.wav               replaces sound 45 (.ogg / .mp3 too)
 ```
 
-Find the numbers with `rekindle GAME --extract DIR` (exported files such as `123_name.png` can be dropped back in as
+Find the numbers with `klikcore GAME --extract DIR` (exported files such as `123_name.png` can be dropped back in as
 they are). Replacement images are drawn at the original size, so higher-resolution images just look sharper, and
 collisions still use the original images, so gameplay is unchanged.
 
 ### Display and errors
 - **Fullscreen**: games that ask for fullscreen at start get it; `--fullscreen` / `--windowed` override that, and
-  Alt+Enter or F11 toggles while playing. Your last choice is remembered per game in `rekindle.ini` in the save folder.
-- **Per-game settings** (launcher: **Settings** on a game; stored in `%APPDATA%\Rekindle\settings\<game>.ini`):
+  Alt+Enter or F11 toggles while playing. Your last choice is remembered per game in `klikcore.ini` in the save folder.
+- **Per-game settings** (launcher: **Settings** on a game; stored in `%APPDATA%\KlikCore\settings\<game>.ini`):
   fullscreen (game default / on / off), window size (auto, 1x-3x), scaling (fit keeps the shape, integer keeps pixels
   crisp, stretch fills the window), upscaling filter (sharp pixels, smooth, enhanced bicubic, HD: bicubic with halo-free edge sharpening for drawn art, or pixel art: Scale2x-style diagonal smoothing), and whether the debug
   HUD shows at start. In game: F9 cycles the filter, F10 the scaling, F11 / Alt+Enter toggles fullscreen.
 - **Errors**: if something inside the game logic fails, the tick is skipped, a red notice appears and the details go to
-  `rekindle.log` in the save folder; the game pauses after repeated failures. Unsupported features hit during play are
+  `klikcore.log` in the save folder; the game pauses after repeated failures. Unsupported features hit during play are
   logged there too, which makes the file useful for bug reports.
 
 ### Viewer
@@ -223,7 +225,7 @@ Many games cover a frame with a fade or transition object that events remove. Wh
 | F11 or Alt+Enter | fullscreen / window |
 | Ctrl+PgUp / Ctrl+PgDn | previous / next frame |
 | Ctrl+1 ... Ctrl+0 | toggle layers 1-10 |
-| Ctrl+F12 | screenshot (`%APPDATA%\Rekindle\screenshots\`) |
+| Ctrl+F12 | screenshot (`%APPDATA%\KlikCore\screenshots\`) |
 | Ctrl+- / Ctrl+= | game speed x0.25 ... x4 |
 | Ctrl+M | mute / unmute |
 | Ctrl+Q | quit (all other keys go to the game) |
@@ -243,33 +245,33 @@ dump door              # debug: print objects whose name contains "door"
 sweep 200              # run every frame for 200 ticks
 ```
 
-Run them with `rekindle --scenario FILE_OR_DIR`, or as part of `cargo test` by setting
-`REKINDLE_SCENARIOS` to the folder (without it the game tests are skipped). See `src/runtime/scenario.rs`.
+Run them with `klikcore --scenario FILE_OR_DIR`, or as part of `cargo test` by setting
+`KLIKCORE_SCENARIOS` to the folder (without it the game tests are skipped). See `src/runtime/scenario.rs`.
 
-Debug environment variables: `REKINDLE_PROFILE=1` makes `--headless` print the slowest events;
-`REKINDLE_NO_EFFECTS=1` disables distortion effects for comparison. `REKINDLE_TRACE=N` prints each condition result of event N every tick.
-`REKINDLE_HUD=compact|full|inspect` shows the overlay (also in screenshots). `REKINDLE_WALK_FRAMES=MS` shows every frame for MS milliseconds and exits (a memory benchmark; not logged as play time).
-`REKINDLE_SETTINGS="filter=hd;window_scale=2"` overrides player settings for one run (also screenshots). With `--dump-info --verbose`, `REKINDLE_ALL_PARAS=1` lists every paragraph of text objects and `REKINDLE_EXT_DATA=1` prints each extension object's stored settings in hex and `REKINDLE_ANIMS=1` lists each object's animations; with `--dump-events`, `REKINDLE_FULL_PARAMS=1` prints parameters in full.
-`REKINDLE_TEXTURE_MB=N` changes the texture cache budget (default 192 MB): textures are kept in a least-recently-used
+Debug environment variables: `KLIKCORE_PROFILE=1` makes `--headless` print the slowest events;
+`KLIKCORE_NO_EFFECTS=1` disables distortion effects for comparison. `KLIKCORE_TRACE=N` prints each condition result of event N every tick.
+`KLIKCORE_HUD=compact|full|inspect` shows the overlay (also in screenshots). `KLIKCORE_WALK_FRAMES=MS` shows every frame for MS milliseconds and exits (a memory benchmark; not logged as play time).
+`KLIKCORE_SETTINGS="filter=hd;window_scale=2"` overrides player settings for one run (also screenshots). With `--dump-info --verbose`, `KLIKCORE_ALL_PARAS=1` lists every paragraph of text objects and `KLIKCORE_EXT_DATA=1` prints each extension object's stored settings in hex and `KLIKCORE_ANIMS=1` lists each object's animations; with `--dump-events`, `KLIKCORE_FULL_PARAMS=1` prints parameters in full.
+`KLIKCORE_TEXTURE_MB=N` changes the texture cache budget (default 192 MB): textures are kept in a least-recently-used
 cache, and whatever the current frame draws is never dropped.
 
 ## CLI
 
 ```
-rekindle <GAME>                         run the game
+klikcore <GAME>                         run the game
           [--frame N] [--mute] [--save-dir DIR] [--static] [--fit] [--show-hidden] [--hide-layer N]...
           [--screenshot out.png [--ticks N]]   render (after N ticks) to a PNG and exit
-rekindle <GAME> --headless N [--press TICK:VK]...   simulate N ticks without a window
-rekindle <GAME> --sweep N               run every frame N ticks and list unsupported features
-rekindle <GAME> --saves status         list save files (import / export copy them; backups kept)
-rekindle <GAME> --probe                 try every condition / action / expression of every frame once
+klikcore <GAME> --headless N [--press TICK:VK]...   simulate N ticks without a window
+klikcore <GAME> --sweep N               run every frame N ticks and list unsupported features
+klikcore <GAME> --saves status         list save files (import / export copy them; backups kept)
+klikcore <GAME> --probe                 try every condition / action / expression of every frame once
                                         and list the unsupported ones with the frames that use them
-rekindle <GAME> --dump-events N         print frame N's event sheet
-rekindle --scenario FILE_OR_DIR         run regression scenarios
-rekindle <GAME> --screenshot DIR --script FILE   play a scripted input file, saving a PNG at each `shot TICK name.png`
-rekindle <GAME> --fullscreen / --windowed       start fullscreen or in a window
-rekindle <GAME> --dump-info [-v]
-rekindle <GAME> --extract DIR
+klikcore <GAME> --dump-events N         print frame N's event sheet
+klikcore --scenario FILE_OR_DIR         run regression scenarios
+klikcore <GAME> --screenshot DIR --script FILE   play a scripted input file, saving a PNG at each `shot TICK name.png`
+klikcore <GAME> --fullscreen / --windowed       start fullscreen or in a window
+klikcore <GAME> --dump-info [-v]
+klikcore <GAME> --extract DIR
 ```
 - `--headless` prints frame changes and the unimplemented features that were hit. `--press 50:13` presses Enter (VK 13) at tick 50.
 - `--dump-info`: summary of the application, assets, objects and frames. Add `-v` to also list every object, layer, chunk and warning.
@@ -298,7 +300,7 @@ src/runtime/      object runtime + event interpreter (no rendering deps)
   value.rs        Fusion values (int / float / string)
   audio.rs        logical sample / channel playback state
   files.rs        sandboxed save-file access
-  save_sync.rs    save manager: import / export between Rekindle and the original game
+  save_sync.rs    save manager: import / export between KlikCore and the original game
   ext/            native extension implementations (ini.rs, gsx.rs, clock.rs)
   scenario.rs     scripted regression scenarios
 src/audio.rs      decoding any bank sound, streamed block by block (symphonia), and resampling
@@ -315,6 +317,6 @@ reference/python/ original exploratory Python parsers (structural reference only
 - Format knowledge comes from inspecting user-supplied files and from publicly documented community research. No Clickteam code is used.
 
 ## Assets and licences
-Rekindle's own assets live in `assets/`: the icon (`assets/icon/`, drawn by `make_icon.py`, which writes the SVG design,
+KlikCore's own assets live in `assets/`: the icon (`assets/icon/`, drawn by `make_icon.py`, which writes the SVG design,
 the PNG and the Windows `.ico`) and the launcher's UI font, [Inter](https://github.com/rsms/inter), under the SIL Open
 Font License 1.1 (`assets/fonts/Inter-LICENSE.txt`). No game files or other copyrighted content are included.

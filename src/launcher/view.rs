@@ -102,7 +102,7 @@ impl Launcher {
         if let Some(t) = self.logo() {
             draw_texture_ex(&t, 24.0, 16.0, WHITE, DrawTextureParams { dest_size: Some(vec2(32.0, 32.0)), ..Default::default() });
         }
-        self.bold_text("Rekindle", 66.0, 41.0, 24, TEXT);
+        self.bold_text("KlikCore 2", 66.0, 41.0, 24, TEXT);
         let idle = self.busy.is_none();
 
         let menu_btn = Rect::new(sw - 24.0 - 40.0, 14.0, 40.0, 36.0);
@@ -142,7 +142,7 @@ impl Launcher {
             let rect = Rect::new(right - w, 14.0, w, 36.0);
             if self.button(rect, &label, false, !self.updating) {
                 self.updating = true;
-                self.busy = Some(format!("Downloading Rekindle v{}...", r.version));
+                self.busy = Some(format!("Downloading KlikCore v{}...", r.version));
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
                     let _ = tx.send(Msg::UpdateInstalled(update::install(&r)));
@@ -152,7 +152,7 @@ impl Launcher {
         }
 
         // Search: typing anywhere in the library filters it.
-        let x0 = 66.0 + self.bold_width("Rekindle", 24) + 36.0;
+        let x0 = 66.0 + self.bold_width("KlikCore 2", 24) + 36.0;
         let w = (right - 12.0 - x0).min(380.0);
         if w > 150.0 && self.library_view() {
             let r = Rect::new(x0, 14.0, w, 36.0);
@@ -345,7 +345,7 @@ impl Launcher {
         let title = "Your library is empty";
         self.bold_text(title, (sw - self.bold_width(title, 26)) / 2.0, cy, 26, TEXT);
         let hint = if cfg!(target_os = "android") {
-            "Copy games from Rekindle on your PC: pair it under Devices, then open its Games."
+            "Copy games from KlikCore on your PC: pair it under Devices, then open its Games."
         } else {
             "Add Clickteam Fusion games (.exe, .ccn or .dat), a folder of them, or the ones you own on Steam."
         };

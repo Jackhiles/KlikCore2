@@ -1,4 +1,4 @@
-//! The Devices page (pair with Rekindle on other devices, sync saves, copy games) and the
+//! The Devices page (pair with KlikCore on other devices, sync saves, copy games) and the
 //! pairing prompt shown over any screen.
 
 use super::pages::{CARD_PAD, SECTION_GAP};
@@ -177,7 +177,7 @@ impl Launcher {
             self.draw_games_chooser(top, &svc);
             return;
         }
-        let (mut p, close) = self.page_start(top, "Devices", "Pair Rekindle on your other computers, Steam Deck or phone to keep saves in sync on the same network.");
+        let (mut p, close) = self.page_start(top, "Devices", "Pair KlikCore on your other computers, Steam Deck or phone to keep saves in sync on the same network.");
         let (peers, nearby, status, syncing) = {
             let s = svc.shared.lock().unwrap_or_else(|e| e.into_inner());
             let mut nearby: Vec<_> = s.nearby.values().cloned().collect();
@@ -188,7 +188,7 @@ impl Launcher {
         // This device.
         rrect(p.x, p.y, p.w, 70.0, 12.0, CARD);
         self.text("This device", p.x + CARD_PAD, p.y + 30.0, 17, TEXT);
-        let vis = if svc.port == 0 { "Can't listen on the network (another Rekindle may be open)".to_string() } else { format!("{}, visible to other devices on this network", svc.me.name) };
+        let vis = if svc.port == 0 { "Can't listen on the network (another KlikCore may be open)".to_string() } else { format!("{}, visible to other devices on this network", svc.me.name) };
         let vis = self.fit(&vis, 14, p.w - 2.0 * CARD_PAD);
         self.text(&vis, p.x + CARD_PAD, p.y + 52.0, 14, MUTED);
         p.y += 70.0 + SECTION_GAP;
@@ -252,7 +252,7 @@ impl Launcher {
         let unpaired: Vec<_> = nearby.iter().filter(|n| !peers.iter().any(|q| q.id == n.id)).collect();
         if unpaired.is_empty() {
             rrect(p.x, p.y, p.w, 60.0, 12.0, CARD);
-            let msg = self.fit("Looking for devices... Open Rekindle on the other device, on the same network.", 15, p.w - 2.0 * CARD_PAD);
+            let msg = self.fit("Looking for devices... Open KlikCore on the other device, on the same network.", 15, p.w - 2.0 * CARD_PAD);
             self.text(&msg, p.x + CARD_PAD, p.y + 36.0, 15, MUTED);
             p.y += 60.0;
         } else {
@@ -332,7 +332,7 @@ impl Launcher {
                 if self.button(add, "Add", true, ip.is_some()) || (ip.is_some() && (is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter))) {
                     if let Some(ip) = ip {
                         svc.add_address(ip);
-                        self.say(format!("Looking for Rekindle at {ip}..."));
+                        self.say(format!("Looking for KlikCore at {ip}..."));
                     }
                     done = true;
                 } else if self.button(cancel, "Cancel", false, true) || is_key_pressed(KeyCode::Escape) {
@@ -441,7 +441,7 @@ impl Launcher {
 
     /// Which paired device to copy games from.
     fn draw_games_chooser(&mut self, top: f32, svc: &crate::sync::Service) {
-        let (mut p, close) = self.page_start(top, "Get games", "Copy games from Rekindle on another device. Their saves sync too.");
+        let (mut p, close) = self.page_start(top, "Get games", "Copy games from KlikCore on another device. Their saves sync too.");
         let (peers, nearby) = {
             let s = svc.shared.lock().unwrap_or_else(|e| e.into_inner());
             (s.peers.clone(), s.nearby.clone())
@@ -450,9 +450,9 @@ impl Launcher {
         if online.is_empty() {
             rrect(p.x, p.y, p.w, 92.0, 12.0, CARD);
             let msg = if peers.is_empty() {
-                "No paired devices yet. Pair this device with Rekindle on your PC first."
+                "No paired devices yet. Pair this device with KlikCore on your PC first."
             } else {
-                "None of your paired devices is on the network right now. Open Rekindle on one of them."
+                "None of your paired devices is on the network right now. Open KlikCore on one of them."
             };
             let msg = self.fit(msg, 15, p.w - 2.0 * CARD_PAD - 170.0);
             self.text(&msg, p.x + CARD_PAD, p.y + 52.0, 15, MUTED);

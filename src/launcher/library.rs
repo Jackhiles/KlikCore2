@@ -1,6 +1,6 @@
 //! The launcher's game library: a plain list of game files with cached titles and icons,
-//! kept in `<data dir>\Rekindle\library.txt` (one `path<TAB>title` per line) and
-//! `<data dir>\Rekindle\icons\`.
+//! kept in `<data dir>\KlikCore\library.txt` (one `path<TAB>title` per line) and
+//! `<data dir>\KlikCore\icons\`.
 
 use crate::ctf_loader::GameData;
 use std::path::{Path, PathBuf};
@@ -11,12 +11,12 @@ pub struct Entry {
     pub title: String,
 }
 
-/// `%APPDATA%\Rekindle` (or the platform's data folder).
+/// `%APPDATA%\KlikCore` (or the platform's data folder).
 pub fn data_dir() -> PathBuf {
     crate::runtime::files::data_root()
 }
 
-/// `<data dir>\games`: where games copied into Rekindle's own storage go (Steam copies,
+/// `<data dir>\games`: where games copied into KlikCore's own storage go (Steam copies,
 /// games sent from another device). On Android, games found here are added on start.
 pub fn games_storage_dir() -> PathBuf {
     data_dir().join("games")
@@ -165,7 +165,7 @@ pub fn find_games(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Create a desktop shortcut that starts `game` with Rekindle, using the game's own icon.
+/// Create a desktop shortcut that starts `game` with KlikCore, using the game's own icon.
 pub fn create_shortcut(game: &Path, title: &str) -> Result<PathBuf, String> {
     let exe = super::update::program_path().map_err(|e| e.to_string())?;
     let game = std::path::absolute(game).unwrap_or_else(|_| game.to_path_buf());
@@ -187,7 +187,7 @@ fn shortcut_impl(exe: &Path, game: &Path, icon: &Path, name: &str) -> Result<Pat
         $s=(New-Object -ComObject WScript.Shell).CreateShortcut($p); \
         $s.TargetPath=$env:RK_TARGET; $s.Arguments=('\"' + $env:RK_GAME + '\"'); \
         $s.WorkingDirectory=$env:RK_DIR; $s.IconLocation=($env:RK_ICON + ',0'); \
-        $s.Description='Play with Rekindle'; $s.Save(); Write-Output $p";
+        $s.Description='Play with KlikCore'; $s.Save(); Write-Output $p";
     let out = std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
         .env("RK_NAME", name)

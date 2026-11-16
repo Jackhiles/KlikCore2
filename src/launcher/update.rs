@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// GitHub `owner/name` that publishes releases.
-pub const REPO: &str = "Jackhiles/Rekindle";
+pub const REPO: &str = "Jackhiles/KlikCore2";
 
 #[derive(Debug, Clone)]
 pub struct Release {
@@ -42,9 +42,9 @@ pub fn current_version() -> &'static str {
 /// Release file for this platform.
 pub fn asset_name() -> Option<&'static str> {
     if cfg!(all(windows, target_arch = "x86_64")) {
-        Some("rekindle-windows-x86_64.exe")
+        Some("klikcore-windows-x86_64.exe")
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Some(if is_appimage() { "Rekindle-x86_64.AppImage" } else { "rekindle-linux-x86_64" })
+        Some(if is_appimage() { "KlikCore-x86_64.AppImage" } else { "klikcore-linux-x86_64" })
     } else {
         None
     }
@@ -67,7 +67,7 @@ pub fn newer(a: &str, b: &str) -> bool {
 
 fn curl(args: &[&str]) -> Result<Vec<u8>, String> {
     let out = Command::new("curl")
-        .args(["-fsSL", "--max-time", "120", "-H", "User-Agent: Rekindle-updater"])
+        .args(["-fsSL", "--max-time", "120", "-H", "User-Agent: KlikCore-updater"])
         .args(args)
         .output()
         .map_err(|e| format!("curl is not available: {e}"))?;
@@ -102,7 +102,7 @@ pub fn check() -> Result<Option<Release>, String> {
 }
 
 fn old_copy(exe: &Path) -> PathBuf {
-    let name = exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "rekindle".into());
+    let name = exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "klikcore".into());
     let ext = exe.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
     exe.with_file_name(format!("{name}.old{ext}"))
 }

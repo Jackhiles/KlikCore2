@@ -1,4 +1,4 @@
-//! Play-time log: one line per play session in `<data dir>\Rekindle\playtime.tsv`
+//! Play-time log: one line per play session in `<data dir>\KlikCore\playtime.tsv`
 //! (`started<TAB>seconds<TAB>game path<TAB>title`), written by the game process when the
 //! window closes and read by the launcher.
 

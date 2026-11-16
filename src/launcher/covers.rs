@@ -1,8 +1,8 @@
 //! Library artwork for the launcher: a portrait cover and a wide banner ("hero") per game.
 //!
 //! Steam's own artwork is used when the game came from Steam; otherwise the same artwork
-//! Rekindle makes for Steam shortcuts is generated from the game's images. Files are cached
-//! in `<data dir>\Rekindle\art\<game key>\`; a worker thread prepares them and hands back
+//! KlikCore makes for Steam shortcuts is generated from the game's images. Files are cached
+//! in `<data dir>\KlikCore\art\<game key>\`; a worker thread prepares them and hands back
 //! small RGBA images ready to upload as textures.
 
 use super::library;
@@ -54,7 +54,7 @@ fn prepare(game: &Path, title: &str) -> (Option<PathBuf>, Option<PathBuf>) {
         }
     }
     // Steam makes its own portrait for games that have none: the small store banner on a
-    // blurred stretch. Rekindle's generated cover looks better, so drop that one.
+    // blurred stretch. KlikCore's generated cover looks better, so drop that one.
     if let Some(c) = find(&d, "cover") {
         if decode(&c).is_some_and(|i| is_stretched_fallback(&i)) {
             let _ = std::fs::remove_file(&c);

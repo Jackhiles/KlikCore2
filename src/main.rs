@@ -1,10 +1,10 @@
-//! Rekindle: a clean-room, open-source runtime for Clickteam Fusion games.
+//! KlikCore: a clean-room, open-source runtime for Clickteam Fusion games.
 //!
 //! This binary contains no game data. Point it at a game you own:
 //!     cargo run --release -- path/to/game.exe              (open the frame viewer)
 //!     cargo run --release -- path/to/game.exe --dump-info  (print a summary)
 
-use rekindle::{ctf_loader, render, runtime};
+use klikcore::{ctf_loader, render, runtime};
 mod dump;
 mod extract;
 
@@ -27,7 +27,7 @@ struct Cli {
     #[arg(long)]
     find_steam: bool,
 
-    /// Write Rekindle's icon as a PNG (used when packaging, e.g. the AppImage).
+    /// Write KlikCore's icon as a PNG (used when packaging, e.g. the AppImage).
     #[arg(long, value_name = "FILE", hide = true)]
     write_icon: Option<PathBuf>,
 
@@ -35,16 +35,16 @@ struct Cli {
     #[arg(long, value_name = "FILE|DIR")]
     add: Vec<PathBuf>,
 
-    /// Create a desktop shortcut that starts GAME with Rekindle, then exit.
+    /// Create a desktop shortcut that starts GAME with KlikCore, then exit.
     #[arg(long, requires = "game")]
     shortcut: bool,
 
-    /// Add GAME to Steam as a shortcut that starts it with Rekindle (with the game's Steam
+    /// Add GAME to Steam as a shortcut that starts it with KlikCore (with the game's Steam
     /// artwork if it has any), then exit. Steam is closed and restarted if it's running.
     #[arg(long, requires = "game")]
     add_to_steam: bool,
 
-    /// Write the library artwork Rekindle makes for GAME into DIR (a preview), then exit.
+    /// Write the library artwork KlikCore makes for GAME into DIR (a preview), then exit.
     #[arg(long, requires = "game", hide = true)]
     make_art: Option<PathBuf>,
 
@@ -88,7 +88,7 @@ struct Cli {
     #[arg(long = "static")]
     static_view: bool,
 
-    /// Folder for the game's save files (default: %APPDATA%\\Rekindle\\<game>).
+    /// Folder for the game's save files (default: %APPDATA%\\KlikCore\\<game>).
     #[arg(long, value_name = "DIR")]
     save_dir: Option<PathBuf>,
 
@@ -129,7 +129,7 @@ struct Cli {
     #[arg(long, value_name = "N")]
     sweep: Option<u64>,
 
-    /// Save manager: `status` lists the game's save files; `import` replaces Rekindle's
+    /// Save manager: `status` lists the game's save files; `import` replaces KlikCore's
     /// saves with the original game's, `export` the other way round (backups are kept).
     #[arg(long, value_name = "status|import|export")]
     saves: Option<String>,
@@ -137,7 +137,7 @@ struct Cli {
     /// Devices on the local network (no game needed): `list` shows nearby and paired
     /// devices, `pair ID` pairs with one (confirming the code here), `sync` syncs saves with
     /// every paired device that's online, `games ID` lists a paired device's games (copy one
-    /// with `fetch ID` and REKINDLE_FETCH=<number>), `serve` stays online and accepts pairing.
+    /// with `fetch ID` and KLIKCORE_FETCH=<number>), `serve` stays online and accepts pairing.
     #[arg(long, num_args = 1..=2, value_names = ["COMMAND", "ID"])]
     sync: Option<Vec<String>>,
 
@@ -153,7 +153,7 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    rekindle::log::install_panic_hook();
+    klikcore::log::install_panic_hook();
     if let Some(target) = &cli.scenario {
         return run_scenarios(target);
     }
@@ -161,7 +161,7 @@ fn main() -> Result<()> {
         return sync_cli(args);
     }
     if cli.find_steam {
-        use rekindle::launcher::steam;
+        use klikcore::launcher::steam;
         let roots = steam::steam_roots();
         if roots.is_empty() {
             println!("No Steam installation found.");
@@ -181,11 +181,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
     if let Some(out) = &cli.write_icon {
-        std::fs::write(out, rekindle::launcher::ICON_PNG)?;
+        std::fs::write(out, klikcore::launcher::ICON_PNG)?;
         return Ok(());
     }
     if !cli.add.is_empty() {
-        use rekindle::launcher::library;
+        use klikcore::launcher::library;
         let mut lib = library::load();
         for p in &cli.add {
             let files = if p.is_dir() { library::find_games(p) } else { vec![p.clone()] };
@@ -203,30 +203,30 @@ fn main() -> Result<()> {
         return Ok(());
     }
     let Some(game_path) = cli.game.clone() else {
-        macroquad::Window::from_config(rekindle::launcher::window_conf(), rekindle::launcher::run());
+        macroquad::Window::from_config(klikcore::launcher::window_conf(), klikcore::launcher::run());
         return Ok(());
     };
     if let Some(dir) = &cli.make_art {
-        let entry = rekindle::launcher::library::inspect(&game_path)
+        let entry = klikcore::launcher::library::inspect(&game_path)
             .ok_or_else(|| anyhow::anyhow!("{} is not a Fusion game", game_path.display()))?;
-        for p in rekindle::launcher::steam_shortcuts::preview_art(&entry.path, &entry.title, dir) {
+        for p in klikcore::launcher::steam_shortcuts::preview_art(&entry.path, &entry.title, dir) {
             println!("{}", p.display());
         }
         return Ok(());
     }
     if cli.add_to_steam {
-        let entry = rekindle::launcher::library::inspect(&game_path)
+        let entry = klikcore::launcher::library::inspect(&game_path)
             .ok_or_else(|| anyhow::anyhow!("{} is not a Fusion game", game_path.display()))?;
-        match rekindle::launcher::steam_shortcuts::add_game(&entry.path, &entry.title, true, |s| println!("{s}")) {
+        match klikcore::launcher::steam_shortcuts::add_game(&entry.path, &entry.title, true, |s| println!("{s}")) {
             Ok(msg) => println!("{msg}"),
             Err(e) => anyhow::bail!("could not add it to Steam: {e}"),
         }
         return Ok(());
     }
     if cli.shortcut {
-        let entry = rekindle::launcher::library::inspect(&game_path)
+        let entry = klikcore::launcher::library::inspect(&game_path)
             .ok_or_else(|| anyhow::anyhow!("{} is not a Fusion game", game_path.display()))?;
-        match rekindle::launcher::library::create_shortcut(&entry.path, &entry.title) {
+        match klikcore::launcher::library::create_shortcut(&entry.path, &entry.title) {
             Ok(p) => println!("Created {}", p.display()),
             Err(e) => anyhow::bail!("could not create the shortcut: {e}"),
         }
@@ -255,9 +255,9 @@ fn main() -> Result<()> {
         return Ok(());
     }
     if let Some(cmd) = &cli.saves {
-        use rekindle::runtime::save_sync::{self, Direction};
+        use klikcore::runtime::save_sync::{self, Direction};
         let fs = runtime::files::SaveFs::new(&game_path, runtime::files::save_root_for(&game_path, &game.name));
-        println!("Rekindle saves: {}", fs.save_root.display());
+        println!("KlikCore saves: {}", fs.save_root.display());
         match cmd.as_str() {
             "import" | "export" => {
                 let dir = if cmd == "import" { Direction::Import } else { Direction::Export };
@@ -273,8 +273,8 @@ fn main() -> Result<()> {
             _ => {
                 for f in save_sync::list(&fs) {
                     println!(
-                        "  rekindle {:>14}  original {:>14}  {}",
-                        save_sync::age(f.rekindle_time),
+                        "  klikcore {:>14}  original {:>14}  {}",
+                        save_sync::age(f.klikcore_time),
                         save_sync::age(f.original_time),
                         f.original.display()
                     );
@@ -322,13 +322,13 @@ fn main() -> Result<()> {
             s.pad = false;
             s
         } else {
-            let legacy = rekindle::runtime::files::default_save_root(&game.name);
+            let legacy = klikcore::runtime::files::default_save_root(&game.name);
             render::settings::Settings::for_game(&game_path, Some(&legacy))
         },
         save_dir: cli.save_dir.or_else(|| {
             cli.screenshot
                 .as_ref()
-                .map(|_| std::env::temp_dir().join(format!("rekindle-test-{}", std::process::id())))
+                .map(|_| std::env::temp_dir().join(format!("klikcore-test-{}", std::process::id())))
         }),
         fullscreen: if cli.fullscreen {
             Some(true)
@@ -346,7 +346,7 @@ fn main() -> Result<()> {
         },
     };
     // A real play session (not a test capture / scripted run): one copy per game.
-    let test_run = opts.screenshot.is_some() || opts.script.is_some() || std::env::var_os("REKINDLE_WALK_FRAMES").is_some();
+    let test_run = opts.screenshot.is_some() || opts.script.is_some() || std::env::var_os("KLIKCORE_WALK_FRAMES").is_some();
     if !test_run && !render::claim_single_instance(&game_path) {
         eprintln!("{} is already running.", game_path.display());
         return Ok(());
@@ -365,7 +365,7 @@ fn run_headless(
     save_dir: Option<PathBuf>,
 ) {
     // A test run: its saves go to a temporary folder unless --save-dir says otherwise.
-    let temp = std::env::temp_dir().join(format!("rekindle-headless-{}", std::process::id()));
+    let temp = std::env::temp_dir().join(format!("klikcore-headless-{}", std::process::id()));
     let mut rt = runtime::Runtime::with_save_root(game, start, Some(save_dir.unwrap_or_else(|| temp.clone())));
     println!("saves: {}", rt.files.save_root.display());
     let mut input = runtime::Input::default();
@@ -429,13 +429,13 @@ fn run_headless(
 /// Compatibility sweep: every frame, N ticks each, then the unsupported features hit overall.
 /// `--sync`: pairing and save sync from the command line.
 fn sync_cli(args: &[String]) -> Result<()> {
-    use rekindle::sync::Service;
+    use klikcore::sync::Service;
     use std::time::Duration;
     let svc = Service::start();
-    svc.shared.lock().unwrap().library = rekindle::launcher::library::load().into_iter().map(|e| (e.title, e.path)).collect();
+    svc.shared.lock().unwrap().library = klikcore::launcher::library::load().into_iter().map(|e| (e.title, e.path)).collect();
     println!("this device: {} ({}), port {}", svc.me.name, svc.me.id, svc.port);
     let shared = svc.shared.clone();
-    let wait_for = |secs: u64, done: &dyn Fn(&rekindle::sync::Shared) -> bool| {
+    let wait_for = |secs: u64, done: &dyn Fn(&klikcore::sync::Shared) -> bool| {
         let t = Instant::now();
         while t.elapsed() < Duration::from_secs(secs) {
             if done(&shared.lock().unwrap()) {
@@ -523,7 +523,7 @@ fn sync_cli(args: &[String]) -> Result<()> {
                     println!("  {}  {}  ({} files, {} bytes)", g.index, g.title, g.files, g.size);
                 }
             } else {
-                let n: usize = std::env::var("REKINDLE_FETCH").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+                let n: usize = std::env::var("KLIKCORE_FETCH").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
                 let g = games.iter().find(|g| g.index == n).ok_or_else(|| anyhow::anyhow!("no game {n}"))?;
                 svc.fetch_game(&id, g);
                 wait_for(3600, &|s| s.transfers.iter().all(|t| t.result.is_some()));
@@ -551,7 +551,7 @@ fn run_probe(game: ctf_loader::GameData, save_dir: Option<PathBuf>) {
     use std::collections::BTreeMap;
     let frames = game.frames.len();
     let names: Vec<String> = game.frames.iter().map(|f| f.name.clone()).collect();
-    let save_dir = save_dir.unwrap_or_else(|| std::env::temp_dir().join(format!("rekindle-probe-{}", std::process::id())));
+    let save_dir = save_dir.unwrap_or_else(|| std::env::temp_dir().join(format!("klikcore-probe-{}", std::process::id())));
     let mut rt = runtime::Runtime::with_save_root(game, 0, Some(save_dir));
     rt.files.isolated = true;
     // feature -> (uses, frames)
@@ -591,7 +591,7 @@ fn run_probe(game: ctf_loader::GameData, save_dir: Option<PathBuf>) {
 
 fn run_sweep(game: ctf_loader::GameData, ticks: u64, save_dir: Option<PathBuf>) {
     let frames = game.frames.len();
-    let save_dir = save_dir.unwrap_or_else(|| std::env::temp_dir().join("rekindle-sweep"));
+    let save_dir = save_dir.unwrap_or_else(|| std::env::temp_dir().join("klikcore-sweep"));
     let mut rt = runtime::Runtime::with_save_root(game, 0, Some(save_dir));
     let t = Instant::now();
     for f in 0..frames {
@@ -623,7 +623,7 @@ fn run_sweep(game: ctf_loader::GameData, ticks: u64, save_dir: Option<PathBuf>) 
 }
 
 fn run_scenarios(target: &std::path::Path) -> Result<()> {
-    use rekindle::runtime::scenario::{find_scenarios, run_scenario};
+    use klikcore::runtime::scenario::{find_scenarios, run_scenario};
     let files = if target.is_dir() { find_scenarios(target) } else { vec![target.to_path_buf()] };
     let mut failed = 0;
     for f in &files {

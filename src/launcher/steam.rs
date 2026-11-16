@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn copies_a_game_folder_with_subfolders() {
-        let base = std::env::temp_dir().join(format!("rekindle-steam-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("klikcore-steam-{}", std::process::id()));
         let src = base.join("src").join("My Game");
         std::fs::create_dir_all(src.join("data")).unwrap();
         std::fs::write(src.join("game.exe"), b"exe").unwrap();

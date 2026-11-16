@@ -1,4 +1,4 @@
-//! The game launcher shown when Rekindle is started without a game: a library of game
+//! The game launcher shown when KlikCore is started without a game: a library of game
 //! files with Play, desktop-shortcut and remove buttons. Games run in their own process.
 
 mod covers;
@@ -94,9 +94,9 @@ const STATUS_H: f32 = 30.0;
 
 /// Interface scale: phones draw the launcher larger (about 432 units on the short side,
 /// rendered at full resolution so text stays sharp); 1 on desktops.
-/// `REKINDLE_UI_SCALE` overrides it (testing).
+/// `KLIKCORE_UI_SCALE` overrides it (testing).
 pub(crate) fn ui_scale() -> f32 {
-    if let Some(s) = std::env::var("REKINDLE_UI_SCALE").ok().and_then(|v| v.parse::<f32>().ok()) {
+    if let Some(s) = std::env::var("KLIKCORE_UI_SCALE").ok().and_then(|v| v.parse::<f32>().ok()) {
         return s.clamp(0.5, 4.0);
     }
     if cfg!(target_os = "android") {
@@ -119,9 +119,9 @@ pub(crate) fn mouse() -> Vec2 {
     Vec2::from(mouse_position()) / ui_scale()
 }
 
-/// Rekindle's icon (assets/icon, drawn by make_icon.py) and the launcher's UI font
+/// KlikCore's icon (assets/icon, drawn by make_icon.py) and the launcher's UI font
 /// (Inter, SIL Open Font License; see assets/fonts).
-pub const ICON_PNG: &[u8] = include_bytes!("../../assets/icon/rekindle-256.png");
+pub const ICON_PNG: &[u8] = include_bytes!("../../assets/icon/klikcore-256.png");
 pub(crate) const FONT_REGULAR: &[u8] = include_bytes!("../../assets/fonts/Inter-Regular.ttf");
 pub(crate) const FONT_SEMIBOLD: &[u8] = include_bytes!("../../assets/fonts/Inter-SemiBold.ttf");
 
@@ -151,7 +151,7 @@ pub fn window_icon() -> Option<macroquad::miniquad::conf::Icon> {
 pub fn window_conf() -> Conf {
     let icon = window_icon();
     Conf {
-        window_title: "Rekindle".into(),
+        window_title: "KlikCore 2".into(),
         icon,
         window_width: 960,
         window_height: 640,
@@ -161,13 +161,13 @@ pub fn window_conf() -> Conf {
     }
 }
 
-/// Launcher-wide options in `<data dir>\Rekindle\launcher.ini`.
+/// Launcher-wide options in `<data dir>\KlikCore\launcher.ini`.
 #[derive(Debug, Clone)]
 struct LauncherConfig {
     /// Copy Steam games into `storage` instead of linking them where Steam installed them.
     steam_copy: bool,
     storage: PathBuf,
-    /// Don't offer to add Rekindle itself to Steam.
+    /// Don't offer to add KlikCore itself to Steam.
     steam_self_never: bool,
 }
 
@@ -208,7 +208,7 @@ enum Msg {
     Status(String),
     Done(String),
     UpdateAvailable(update::Release),
-    /// Steam is open and has no Rekindle shortcut: offer to add one.
+    /// Steam is open and has no KlikCore shortcut: offer to add one.
     OfferSteamShortcut,
     /// A line for the Steam panel's results.
     SteamLine(String),
@@ -262,7 +262,7 @@ struct Launcher {
     has_steam: bool,
     /// Asking to restart Steam before adding this library entry to it.
     steam_confirm: Option<usize>,
-    /// Offering (in the status bar) to add Rekindle itself to Steam.
+    /// Offering (in the status bar) to add KlikCore itself to Steam.
     steam_offer: bool,
     /// Library artwork: (cover, hero) per game file, and games already asked for.
     art: HashMap<PathBuf, (Option<Texture2D>, Option<Texture2D>)>,
@@ -357,7 +357,7 @@ impl Launcher {
             block_input: false,
             grid_cols: 1,
             reveal: false,
-            sync: (std::env::var_os("REKINDLE_NO_SYNC").is_none()).then(crate::sync::Service::start),
+            sync: (std::env::var_os("KLIKCORE_NO_SYNC").is_none()).then(crate::sync::Service::start),
             devices_page: false,
             remote_games_for: None,
             unpair_confirm: None,
@@ -432,7 +432,7 @@ impl Launcher {
     fn start_update_check(&self) {
         update::cleanup();
         // Android updates come as a new APK, not a replaced program file.
-        if cfg!(target_os = "android") || update::is_dev_build() || std::env::var_os("REKINDLE_NO_UPDATE_CHECK").is_some() {
+        if cfg!(target_os = "android") || update::is_dev_build() || std::env::var_os("KLIKCORE_NO_UPDATE_CHECK").is_some() {
             return;
         }
         let tx = self.tx.clone();
@@ -456,7 +456,7 @@ impl Launcher {
         }
     }
 
-    /// Open the Rekindle data folder (saves, play log, error logs) in the file manager.
+    /// Open the KlikCore data folder (saves, play log, error logs) in the file manager.
     fn open_data_folder(&mut self) {
         let dir = library::data_dir();
         let _ = std::fs::create_dir_all(&dir);
@@ -675,7 +675,7 @@ impl Launcher {
                         Ok(_) => std::process::exit(0),
                         Err(e) => {
                             self.updating = false;
-                            self.say(format!("Updated; please restart Rekindle ({e})"));
+                            self.say(format!("Updated; please restart KlikCore ({e})"));
                         }
                     }
                 }
@@ -834,7 +834,7 @@ impl Launcher {
         });
     }
 
-    /// On start: make sure Steam has a shortcut to Rekindle. Added quietly when Steam is
+    /// On start: make sure Steam has a shortcut to KlikCore. Added quietly when Steam is
     /// closed; when it's open (adding means restarting it) the status bar asks first.
     fn check_steam_shortcut(&self) {
         if !self.has_steam || self.config.steam_self_never || update::is_dev_build() || steam_shortcuts::in_gaming_mode() {
@@ -860,14 +860,14 @@ pub async fn run() {
     l.check_steam_shortcut();
     #[cfg(target_os = "android")]
     l.scan_game_folders();
-    // Testing: REKINDLE_LAUNCHER_SHOT=<file.png> saves the window once artwork has loaded
-    // (or after 20 s), then exits. REKINDLE_LAUNCHER_SELECT=<n> selects the n-th game,
-    // REKINDLE_LAUNCHER_PAGE=settings|steam|log|devices opens that page.
-    let shot = std::env::var_os("REKINDLE_LAUNCHER_SHOT").map(PathBuf::from);
-    if let Some(n) = std::env::var("REKINDLE_LAUNCHER_SELECT").ok().and_then(|v| v.parse::<usize>().ok()) {
+    // Testing: KLIKCORE_LAUNCHER_SHOT=<file.png> saves the window once artwork has loaded
+    // (or after 20 s), then exits. KLIKCORE_LAUNCHER_SELECT=<n> selects the n-th game,
+    // KLIKCORE_LAUNCHER_PAGE=settings|steam|log|devices opens that page.
+    let shot = std::env::var_os("KLIKCORE_LAUNCHER_SHOT").map(PathBuf::from);
+    if let Some(n) = std::env::var("KLIKCORE_LAUNCHER_SELECT").ok().and_then(|v| v.parse::<usize>().ok()) {
         l.selected = Some(n);
     }
-    match std::env::var("REKINDLE_LAUNCHER_PAGE").as_deref() {
+    match std::env::var("KLIKCORE_LAUNCHER_PAGE").as_deref() {
         Ok("settings") if !l.entries.is_empty() => l.game_action(l.selected.unwrap_or(0).min(l.entries.len() - 1), view::ACT_SETTINGS),
         Ok("steam") => l.steam_panel = true,
         Ok("log") => l.show_log = true,

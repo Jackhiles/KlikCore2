@@ -1,5 +1,5 @@
 //! This device's identity and the devices it is paired with, kept in
-//! `<data dir>/Rekindle/sync/`.
+//! `<data dir>/KlikCore/sync/`.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -40,7 +40,7 @@ pub fn device_name() -> String {
         .or_else(|| std::fs::read_to_string("/etc/hostname").ok())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "Rekindle device".into())
+        .unwrap_or_else(|| "KlikCore device".into())
 }
 
 impl Identity {
@@ -116,7 +116,7 @@ pub fn save_peers(peers: &[Peer]) {
     let _ = std::fs::write(peers_file(), text);
 }
 
-/// Change the paired-device list on disk (re-read first, so another Rekindle process
+/// Change the paired-device list on disk (re-read first, so another KlikCore process
 /// sharing this data folder can't have its changes overwritten) and return the result.
 pub fn update_peers(f: impl FnOnce(&mut Vec<Peer>)) -> Vec<Peer> {
     let mut peers = load_peers();

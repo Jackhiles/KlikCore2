@@ -79,7 +79,7 @@ pub fn run_scenario(path: &Path) -> Result<ScenarioResult> {
     let mut result = ScenarioResult { name, failures: Vec::new(), log: Vec::new() };
     let mut driver: Option<Driver> = None;
     let mut start_frame = 0usize;
-    let save_root = std::env::temp_dir().join(format!("rekindle-scenario-{}-{}", result.name, std::process::id()));
+    let save_root = std::env::temp_dir().join(format!("klikcore-scenario-{}-{}", result.name, std::process::id()));
     let _ = std::fs::remove_dir_all(&save_root);
 
     for (lineno, raw) in text.lines().enumerate() {
@@ -100,7 +100,7 @@ pub fn run_scenario(path: &Path) -> Result<ScenarioResult> {
                 rt.files.isolated = true;
                 driver = Some(Driver { rt, tick: 0, script: InputScript::default(), last_mouse: (0.0, 0.0), save_root: save_root.clone() });
             }
-            // `saves DIR` (before `game`): start from a copy of a save folder (a Rekindle
+            // `saves DIR` (before `game`): start from a copy of a save folder (a KlikCore
             // save root, e.g. one with `app\` and `appdata\`).
             "saves" => {
                 let src = dir.join(rest);

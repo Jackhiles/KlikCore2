@@ -195,7 +195,7 @@ impl Launcher {
         }
     }
 
-    /// Save manager card: move saves between Rekindle and the original game.
+    /// Save manager card: move saves between KlikCore and the original game.
     fn saves_card(&mut self, i: usize, p: &mut Page) {
         use crate::runtime::save_sync::{self, Direction};
         let Some(entry) = self.entries.get(i).cloned() else { return };
@@ -206,8 +206,8 @@ impl Launcher {
         }
         let status = self.saves_status.as_ref().map(|(_, s)| s.clone()).unwrap_or_default();
         let confirm = match self.saves_confirm {
-            Some(Direction::Import) => Some("Click again to replace Rekindle's saves with the original game's. A backup is kept."),
-            Some(Direction::Export) => Some("Click again to replace the original game's saves with Rekindle's. A backup is kept."),
+            Some(Direction::Import) => Some("Click again to replace KlikCore's saves with the original game's. A backup is kept."),
+            Some(Direction::Export) => Some("Click again to replace the original game's saves with KlikCore's. A backup is kept."),
             None => None,
         };
         let labels = ["Use original game's saves", "Copy to original game", "Open folder"];
@@ -217,7 +217,7 @@ impl Launcher {
         let buttons_h = if one_line { 40.0 } else { 3.0 * 48.0 - 8.0 };
         let h = CARD_PAD + 22.0 + 28.0 + buttons_h + CARD_PAD;
         rrect(p.x, p.y, p.w, h, 12.0, CARD);
-        self.text("Move your progress between Rekindle and the original game.", p.x + CARD_PAD, p.y + CARD_PAD + 14.0, 15, TEXT);
+        self.text("Move your progress between KlikCore and the original game.", p.x + CARD_PAD, p.y + CARD_PAD + 14.0, 15, TEXT);
         let line = self.fit(confirm.unwrap_or(&status), 14, inner);
         self.text(&line, p.x + CARD_PAD, p.y + CARD_PAD + 38.0, 14, if confirm.is_some() { ACCENT } else { MUTED });
         let mut x = p.x + CARD_PAD;
@@ -262,7 +262,7 @@ impl Launcher {
         }
         let r = save_sync::copy(&fs, dir);
         self.saves_status = None;
-        let what = if dir == Direction::Import { "Rekindle now uses the original game's saves" } else { "The original game now has Rekindle's saves" };
+        let what = if dir == Direction::Import { "KlikCore now uses the original game's saves" } else { "The original game now has KlikCore's saves" };
         let backup = r.backup.map(|b| format!("; backup in {}", b.display())).unwrap_or_default();
         if r.errors.is_empty() {
             self.say(format!("{what}: {} copied, {} removed{backup}.", r.copied, r.removed));
@@ -322,7 +322,7 @@ impl Launcher {
         let w = (sw - 48.0).min(560.0);
         let lines = [
             "Steam is running. It only reads its shortcuts when it starts,",
-            "and can overwrite changes made while it's open. Rekindle will",
+            "and can overwrite changes made while it's open. KlikCore will",
             "close Steam, add the shortcut (with the game's artwork) and",
             "start Steam again.",
         ];
@@ -389,9 +389,9 @@ impl Launcher {
         }
     }
 
-    /// Toast asking to add Rekindle itself to Steam.
+    /// Toast asking to add KlikCore itself to Steam.
     pub(super) fn draw_steam_offer(&mut self, sh: f32) {
-        let msg = "Add Rekindle to Steam? Steam will restart.";
+        let msg = "Add KlikCore to Steam? Steam will restart.";
         let labels = [("Add", true), ("Not now", false), ("Don't ask again", false)];
         let widths: Vec<f32> = labels.iter().map(|(l, _)| self.bold_width(l, 16) + 28.0).collect();
         let w = self.text_width(msg, 15) + 32.0 + widths.iter().sum::<f32>() + 8.0 * 3.0;
@@ -409,13 +409,13 @@ impl Launcher {
         match clicked {
             Some(0) => {
                 self.steam_offer = false;
-                self.busy = Some("Adding Rekindle to Steam...".into());
+                self.busy = Some("Adding KlikCore to Steam...".into());
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
                     let progress = |s: &str| {
                         let _ = tx.send(Msg::Status(s.to_string()));
                     };
-                    let msg = steam_shortcuts::add_launcher(true, progress).unwrap_or_else(|e| format!("Could not add Rekindle to Steam: {e}"));
+                    let msg = steam_shortcuts::add_launcher(true, progress).unwrap_or_else(|e| format!("Could not add KlikCore to Steam: {e}"));
                     let _ = tx.send(Msg::Done(msg));
                 });
             }

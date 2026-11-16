@@ -16,12 +16,15 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            built: target/release/rekindle.exe
-            asset: rekindle-windows-x86_64.exe
+            built: target/release/klikcore.exe
+            asset: klikcore-windows-x86_64.exe
+            # The project was called Rekindle: installed copies look for these names.
+            legacy: rekindle-windows-x86_64.exe
           # Ubuntu 22.04's older glibc keeps the binary compatible with SteamOS and most distros.
           - os: ubuntu-22.04
-            built: target/release/rekindle
-            asset: rekindle-linux-x86_64
+            built: target/release/klikcore
+            asset: klikcore-linux-x86_64
+            legacy: rekindle-linux-x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -35,32 +38,37 @@ jobs:
         run: cargo build --release
       - name: Name the file for the updater
         shell: bash
-        run: cp "${{ matrix.built }}" "${{ matrix.asset }}"
+        run: |
+          cp "${{ matrix.built }}" "${{ matrix.asset }}"
+          cp "${{ matrix.built }}" "${{ matrix.legacy }}"
       - name: AppImage (Linux)
         if: runner.os == 'Linux'
         run: |
           mkdir -p AppDir/usr/bin
-          cp target/release/rekindle AppDir/usr/bin/rekindle
-          ln -s usr/bin/rekindle AppDir/AppRun
-          target/release/rekindle --write-icon AppDir/rekindle.png
-          cat > AppDir/rekindle.desktop <<'EOF'
+          cp target/release/klikcore AppDir/usr/bin/klikcore
+          ln -s usr/bin/klikcore AppDir/AppRun
+          target/release/klikcore --write-icon AppDir/klikcore.png
+          cat > AppDir/klikcore.desktop <<'EOF'
           [Desktop Entry]
           Type=Application
-          Name=Rekindle
+          Name=KlikCore 2
           Comment=Runtime and launcher for Clickteam Fusion games
-          Exec=rekindle %f
-          Icon=rekindle
+          Exec=klikcore %f
+          Icon=klikcore
           Categories=Game;
           Terminal=false
           EOF
-          sed -i 's/^ *//' AppDir/rekindle.desktop
+          sed -i 's/^ *//' AppDir/klikcore.desktop
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
-          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir Rekindle-x86_64.AppImage
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir KlikCore-x86_64.AppImage
+          cp KlikCore-x86_64.AppImage Rekindle-x86_64.AppImage
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ matrix.asset }}
+            ${{ matrix.legacy }}
+            KlikCore-x86_64.AppImage
             Rekindle-x86_64.AppImage
           fail_on_unmatched_files: false
           generate_release_notes: true
@@ -94,17 +102,17 @@ jobs:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
         run: |
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          echo "REKINDLE_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          echo "KLIKCORE_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
       - name: Build APK
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
-          REKINDLE_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
-          REKINDLE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KLIKCORE_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          KLIKCORE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           python3 scripts/android/build.py --release
-          cp target/android/rekindle-release.apk rekindle-android-arm64.apk
+          cp target/android/klikcore-release.apk klikcore-android-arm64.apk
       - uses: softprops/action-gh-release@v2
         with:
-          files: rekindle-android-arm64.apk
+          files: klikcore-android-arm64.apk
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}

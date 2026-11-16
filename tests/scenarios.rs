@@ -1,13 +1,13 @@
-//! Runs every scenario (`*.scn`) in the folder named by `REKINDLE_SCENARIOS`.
+//! Runs every scenario (`*.scn`) in the folder named by `KLIKCORE_SCENARIOS`.
 //! Game files are never part of this repository, so without that variable the test is skipped.
 
-use rekindle::runtime::scenario::{find_scenarios, run_scenario};
+use klikcore::runtime::scenario::{find_scenarios, run_scenario};
 use std::path::PathBuf;
 
 #[test]
 fn game_scenarios() {
-    let Some(dir) = std::env::var_os("REKINDLE_SCENARIOS").map(PathBuf::from) else {
-        eprintln!("REKINDLE_SCENARIOS not set: skipping game scenarios");
+    let Some(dir) = std::env::var_os("KLIKCORE_SCENARIOS").map(PathBuf::from) else {
+        eprintln!("KLIKCORE_SCENARIOS not set: skipping game scenarios");
         return;
     };
     let files = find_scenarios(&dir);

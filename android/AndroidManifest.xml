@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Rekindle for Android. scripts/android/build.py fills in the version and package. -->
+<!-- KlikCore for Android. scripts/android/build.py fills in the version and package. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="@PACKAGE@"
     android:versionCode="@VERSION_CODE@"
@@ -15,7 +15,7 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <application
-        android:label="Rekindle"
+        android:label="KlikCore 2"
         android:icon="@mipmap/ic_launcher"
         android:appCategory="game"
         android:isGame="true"

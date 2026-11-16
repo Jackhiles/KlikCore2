@@ -237,7 +237,7 @@ pub struct Runtime {
     pub cursor_object: Option<String>,
     /// Collision masks by image handle (None = image could not be decoded).
     masks: RefCell<HashMap<u32, Option<Rc<Mask>>>>,
-    /// Per-event time spent (enabled by the REKINDLE_PROFILE environment variable).
+    /// Per-event time spent (enabled by the KLIKCORE_PROFILE environment variable).
     pub profile: Option<RefCell<EventProfile>>,
     /// Obstacle instances with their bounding boxes, keyed by (tick, instance count).
     obstacle_cache: RefCell<Option<ObstacleCache>>,
@@ -328,7 +328,7 @@ impl Runtime {
             masks: RefCell::new(HashMap::default()),
             oi_index: RefCell::new(None),
             obstacle_cache: RefCell::new(None),
-            profile: std::env::var_os("REKINDLE_PROFILE").map(|_| RefCell::new(HashMap::default())),
+            profile: std::env::var_os("KLIKCORE_PROFILE").map(|_| RefCell::new(HashMap::default())),
         };
         rt.load_frame(start_frame);
         rt

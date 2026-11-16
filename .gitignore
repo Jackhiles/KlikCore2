@@ -1,8 +1,8 @@
 /target
 
 # The built program copied to the root by build.cmd / build.sh (and updater leftovers).
-/Rekindle
-/Rekindle.new
+/KlikCore
+/KlikCore.new
 *.old.exe
 *.download
 

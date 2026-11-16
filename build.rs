@@ -1,11 +1,11 @@
-//! Gives the Windows executable Rekindle's icon (shown by Explorer, shortcuts and the taskbar),
+//! Gives the Windows executable KlikCore's icon (shown by Explorer, shortcuts and the taskbar),
 //! and links the Android library's C++ runtime.
 
 fn main() {
-    println!("cargo:rerun-if-changed=assets/icon/rekindle.rc");
-    println!("cargo:rerun-if-changed=assets/icon/rekindle.ico");
+    println!("cargo:rerun-if-changed=assets/icon/klikcore.rc");
+    println!("cargo:rerun-if-changed=assets/icon/klikcore.ico");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        embed_resource::compile("assets/icon/rekindle.rc", embed_resource::NONE)
+        embed_resource::compile("assets/icon/klikcore.rc", embed_resource::NONE)
             .manifest_optional()
             .unwrap();
     }

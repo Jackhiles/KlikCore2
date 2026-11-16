@@ -562,7 +562,7 @@ impl Runtime {
             }
         }
         let mut chosen: Option<Sel> = None;
-        // Debug: REKINDLE_TRACE=<event number> prints each condition's result.
+        // Debug: KLIKCORE_TRACE=<event number> prints each condition's result.
         let trace = trace_event() == Some(gi);
         for block in &blocks {
             let mut sel = Sel::default();
@@ -1999,9 +1999,9 @@ mod tests {
     }
 }
 
-/// REKINDLE_TRACE=<event number>, read once (environment lookups are slow on Windows).
+/// KLIKCORE_TRACE=<event number>, read once (environment lookups are slow on Windows).
 fn trace_event() -> Option<usize> {
     static T: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
-    *T.get_or_init(|| std::env::var("REKINDLE_TRACE").ok().and_then(|v| v.parse().ok()))
+    *T.get_or_init(|| std::env::var("KLIKCORE_TRACE").ok().and_then(|v| v.parse().ok()))
 }
 

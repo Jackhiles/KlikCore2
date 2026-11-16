@@ -35,7 +35,7 @@ fn norm(p: &str) -> String {
     p.replace('/', "\\").trim_end_matches('\\').to_lowercase()
 }
 
-/// Default save folder for a game title: %APPDATA%\Rekindle\<title> (or ~/.local/share/Rekindle/<title>).
+/// Default save folder for a game title: %APPDATA%\KlikCore\<title> (or ~/.local/share/KlikCore/<title>).
 pub fn default_save_root(title: &str) -> PathBuf {
     let safe: String = title
         .chars()
@@ -54,7 +54,12 @@ pub fn default_save_root(title: &str) -> PathBuf {
     };
     let dir = data_root().join(safe);
     // Files that had the old names inside a game's folder.
-    for (old, new) in [("fusion-rt.ini", "rekindle.ini"), ("fusion-rt.log", "rekindle.log")] {
+    for (old, new) in [
+        ("rekindle.ini", "klikcore.ini"),
+        ("rekindle.log", "klikcore.log"),
+        ("fusion-rt.ini", "klikcore.ini"),
+        ("fusion-rt.log", "klikcore.log"),
+    ] {
         let (o, n) = (dir.join(old), dir.join(new));
         if o.is_file() && !n.exists() {
             let _ = std::fs::rename(o, n);
@@ -89,17 +94,17 @@ pub fn android_external_dir() -> Option<PathBuf> {
     ANDROID_DIRS.get().and_then(|d| d.1.clone())
 }
 
-/// Android: `<app files dir>/Rekindle`.
+/// Android: `<app files dir>/KlikCore`.
 #[cfg(target_os = "android")]
 pub fn data_root() -> PathBuf {
     let base = ANDROID_DIRS
         .get()
         .and_then(|d| d.0.clone())
-        .unwrap_or_else(|| PathBuf::from("/data/data/com.takobyte.rekindle/files"));
-    base.join("Rekindle")
+        .unwrap_or_else(|| PathBuf::from("/data/data/com.takobyte.klikcore/files"));
+    base.join("KlikCore")
 }
 
-/// `%APPDATA%\Rekindle` (or the platform's data folder): saves, settings and the launcher library.
+/// `%APPDATA%\KlikCore` (or the platform's data folder): saves, settings and the launcher library.
 #[cfg(not(target_os = "android"))]
 pub fn data_root() -> PathBuf {
     let base = std::env::var_os("APPDATA")
@@ -107,18 +112,25 @@ pub fn data_root() -> PathBuf {
         .or_else(|| std::env::var_os("XDG_DATA_HOME").map(PathBuf::from))
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
         .unwrap_or_else(|| PathBuf::from("."));
-    let root = base.join("Rekindle");
-    migrate_old_saves(&base, &root);
-    root
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| migrate_old_saves(&base, base.join("KlikCore"))).clone()
 }
 
-/// Saves made before the project was renamed live in `fusion-rt`; move them over once.
+/// Data from before the project's renames (`Rekindle`, earlier `fusion-rt`) moves to the
+/// new folder once. If the old folder can't be moved (something has it open), it stays in
+/// use, so nothing is lost.
 #[cfg(not(target_os = "android"))]
-fn migrate_old_saves(base: &Path, root: &Path) {
-    let old = base.join("fusion-rt");
-    if old.is_dir() && !root.exists() {
-        let _ = std::fs::rename(&old, root);
+fn migrate_old_saves(base: &Path, root: PathBuf) -> PathBuf {
+    if root.exists() {
+        return root;
     }
+    for old_name in ["Rekindle", "fusion-rt"] {
+        let old = base.join(old_name);
+        if old.is_dir() {
+            return if std::fs::rename(&old, &root).is_ok() { root } else { old };
+        }
+    }
+    root
 }
 
 impl SaveFs {
