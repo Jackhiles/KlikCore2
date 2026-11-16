@@ -28,6 +28,10 @@ fn u16_at(b: &[u8], o: usize) -> Option<u16> {
 fn i16_at(b: &[u8], o: usize) -> Option<i16> {
     u16_at(b, o).map(|v| v as i16)
 }
+fn i32_at(b: &[u8], o: usize) -> Option<i32> {
+    u32_at(b, o).map(|v| v as i32)
+}
+
 fn u32_at(b: &[u8], o: usize) -> Option<u32> {
     b.get(o..o + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
 }
@@ -50,29 +54,12 @@ fn find_palette(b: &[u8], from: usize, to: usize) -> Option<(usize, Vec<[u8; 4]>
     Some((at, pal.collect()))
 }
 
-/// Decode an embedded (opaque) image: one run-length stream over rows padded to 4 pixels.
-/// A byte below 0x80 repeats the next byte, 0x80 + n copies n bytes, 0 ends.
-pub fn decode_rle(data: &[u8], w: usize, h: usize) -> Vec<u8> {
-    let mut out = Vec::with_capacity(w * h);
-    let mut i = 0;
-    while i < data.len() {
-        let n = data[i] as usize;
-        i += 1;
-        if n == 0 {
-            break;
-        }
-        if n < 0x80 {
-            let v = data.get(i).copied().unwrap_or(0);
-            out.extend(std::iter::repeat_n(v, n));
-            i += 1;
-        } else {
-            let n = n & 0x7F;
-            out.extend_from_slice(data.get(i..i + n).unwrap_or(&[]));
-            i += n;
-        }
-    }
-    let stride = (w + 3) & !3;
-    let mut px = vec![0u8; w * h];
+/// An embedded image's pixels: one run-length stream over the whole picture, rows padded
+/// to an even number of bytes. `unit` is the bytes per pixel (1 = palette index, 2 = 15-bit colour).
+pub fn decode_rle(data: &[u8], w: usize, h: usize, unit: usize) -> Vec<u16> {
+    let out = decode_stream(data, unit);
+    let stride = (w * unit).div_ceil(2) * 2 / unit;
+    let mut px = vec![0u16; w * h];
     for y in 0..h {
         for x in 0..w {
             px[y * w + x] = out.get(y * stride + x).copied().unwrap_or(0);
@@ -81,20 +68,22 @@ pub fn decode_rle(data: &[u8], w: usize, h: usize) -> Vec<u8> {
     px
 }
 
-/// Decode a bank image's data (after its 24-byte header) to palette indices plus an
-/// opacity mask: per-row (skip, draw) runs, then one run-length stream of the drawn pixels.
-pub fn decode_masked(d: &[u8], w: usize, h: usize) -> (Vec<u8>, Vec<bool>) {
-    let mut px = vec![0u8; w * h];
+/// Decode a bank image's data (after its 24-byte header) to pixel values plus an opacity
+/// mask: per-row (skip, draw) runs, then one run-length stream of the drawn pixels. `unit` is
+/// the bytes per pixel (1 = palette index, 2 = 15-bit colour).
+pub fn decode_masked(d: &[u8], w: usize, h: usize, unit: usize) -> (Vec<u16>, Vec<bool>) {
+    let mut px = vec![0u16; w * h];
     let mut mask = vec![false; w * h];
     if h == 0 || d.len() < 4 + 8 * h {
         return (px, mask);
     }
     let rows: Vec<(usize, usize)> = (0..h).map(|r| (u32_at(d, 4 + 8 * r).unwrap_or(0) as usize, u32_at(d, 8 + 8 * r).unwrap_or(0) as usize)).collect();
     let base = rows[0].1;
-    let stream = decode_stream(d.get(base + 4..).unwrap_or(&[]));
+    let stream = decode_stream(d.get(base + 4..).unwrap_or(&[]), unit);
     for (y, &(runs, start)) in rows.iter().enumerate() {
         let mut r = runs + 4;
-        let (mut x, mut k) = (0usize, start.saturating_sub(base));
+        // Row starts count bytes of the decoded stream.
+        let (mut x, mut k) = (0usize, start.saturating_sub(base) / unit);
         while x < w && r + 1 < d.len() {
             let (skip, draw) = (d[r] as usize, d[r + 1] as usize);
             r += 2;
@@ -115,7 +104,15 @@ pub fn decode_masked(d: &[u8], w: usize, h: usize) -> (Vec<u8>, Vec<bool>) {
     (px, mask)
 }
 
-fn decode_stream(data: &[u8]) -> Vec<u8> {
+/// The run-length pixel stream: a byte below 0x80 repeats the next pixel that many times,
+/// 0x80 + n copies the next n pixels, 0 ends it. Pixels are `unit` bytes (little-endian).
+fn decode_stream(data: &[u8], unit: usize) -> Vec<u16> {
+    let px = |i: usize| -> u16 {
+        match unit {
+            2 => u16_at(data, i).unwrap_or(0),
+            _ => data.get(i).copied().unwrap_or(0) as u16,
+        }
+    };
     let mut out = Vec::new();
     let mut i = 0;
     while i < data.len() {
@@ -125,12 +122,14 @@ fn decode_stream(data: &[u8]) -> Vec<u8> {
             break;
         }
         if n < 0x80 {
-            out.extend(std::iter::repeat_n(data.get(i).copied().unwrap_or(0), n));
-            i += 1;
+            let v = px(i);
+            out.extend(std::iter::repeat_n(v, n));
+            i += unit;
         } else {
-            let n = n & 0x7F;
-            out.extend_from_slice(data.get(i..i + n).unwrap_or(&[]));
-            i += n;
+            for k in 0..(n & 0x7F) {
+                out.push(px(i + k * unit));
+            }
+            i += (n & 0x7F) * unit;
         }
     }
     out
@@ -154,8 +153,18 @@ impl Ctx {
         let data = b.get(at + 30..at + 30 + size)?.to_vec();
         let handle = self.next_image;
         self.next_image += 1;
-        self.images.push(ImageEntry::cca(handle, w, h, hot, (0, 0), data, flags & 0x40 != 0, self.palette.clone()));
+        self.images.push(ImageEntry::cca(handle, w, h, hot, (0, 0), data, flags & 0x40 != 0, pixel_bytes(b.get(at + 20).copied().unwrap_or(3), flags), self.palette.clone()));
         Some(handle as u16)
+    }
+}
+
+/// Bytes per pixel from an image's colour mode byte (3 palette indices, 6 15-bit colour) and
+/// flags (0x?1 / 0x?2 the same, but not always set).
+fn pixel_bytes(mode: u8, flags: u8) -> u8 {
+    if mode == 6 || flags & 0x03 == 2 {
+        2
+    } else {
+        1
     }
 }
 
@@ -204,9 +213,15 @@ pub fn load(file: Blob, path: PathBuf) -> Result<GameData> {
         let act = (i16_at(b, p + 20).unwrap_or(0), i16_at(b, p + 22).unwrap_or(0));
         let flags = b.get(p + 15).copied().unwrap_or(0x41);
         let data = b.get(p + 24..p + size as usize).unwrap_or(&[]).to_vec();
-        ctx.images.push(ImageEntry::cca(i as u32, w, h, hot, act, data, flags & 0x40 != 0, ctx.palette.clone()));
+        ctx.images.push(ImageEntry::cca(i as u32, w, h, hot, act, data, flags & 0x40 != 0, pixel_bytes(b.get(p + 14).copied().unwrap_or(3), flags), ctx.palette.clone()));
     }
     ctx.next_image = count as u32;
+    // After the images: the font, music and sound banks, each a table like the image bank's.
+    let images_end = (0..count)
+        .filter_map(|i| Some(bank + u32_at(b, bank + 4 + 8 * i)? as usize + u32_at(b, bank + 8 + 8 * i)? as usize))
+        .max()
+        .unwrap_or(bank);
+    let (music, sounds) = read_audio_banks(b, images_end);
 
     let mut objects: Vec<ObjectInfo> = Vec::new();
     let mut extensions: Vec<ExtensionInfo> = Vec::new();
@@ -257,8 +272,8 @@ pub fn load(file: Blob, path: PathBuf) -> Result<GameData> {
         global_values: Vec::new(),
         global_strings: Vec::new(),
         images: ImageBank::from_entries(ctx.images),
-        sounds: Default::default(),
-        music: Default::default(),
+        sounds,
+        music,
         fonts: Default::default(),
         chunks: Vec::new(),
         warnings,
@@ -362,7 +377,9 @@ fn read_objects(b: &[u8], start: usize, end: usize, base: u16, ctx: &mut Ctx, ob
         let props_at = n + 74;
         // A record whose fields don't add up (a long name spilling over them, or a match
         // inside other data): skip it, but keep scanning byte by byte.
-        let known = matches!(typ, 0..=7 | 0x100..=0x107 | 0x400..=0x407) || (32..0x100).contains(&typ);
+        let base_type = typ & 0xFF;
+        let hidden = typ & 0x800 != 0;
+        let known = typ < 0x1000 && typ != 0xFFF && (base_type <= 7 || base_type >= 32);
         let _ = id;
         if !known || props_at + psz > end {
             // An object whose record has a different layout (e.g. a text object holding a
@@ -372,14 +389,11 @@ fn read_objects(b: &[u8], start: usize, end: usize, base: u16, ctx: &mut Ctx, ob
             n += 68;
             continue;
         }
-        let kind_id: i16 = match typ & 0xFF {
-            t if typ >= 32 && typ < 0x100 => t as i16,
-            t => t as i16,
-        };
+        let kind_id = base_type as i16;
         let handle = base + index;
         index += 1;
-        let (kind, props) = match typ {
-            0x400 => {
+        let (kind, props) = match base_type {
+            0 => {
                 let (bw, bh) = (u16_at(b, n + 34).unwrap_or(32) as u32, u16_at(b, n + 36).unwrap_or(32) as u32);
                 let fill = if u16_at(b, n + 68) == Some(0x8002) {
                     ctx.embedded_image(b, n + 68).map(Fill::Motif).unwrap_or(Fill::Solid([0, 0, 0, 255]))
@@ -392,28 +406,49 @@ fn read_objects(b: &[u8], start: usize, end: usize, base: u16, ctx: &mut Ctx, ob
                     ObjectProperties::QuickBackdrop(QuickBackdrop { obstacle: 0, collision: 0, width: bw, height: bh, shape: Shape { border_size: 0, border_color: [0; 4], kind: ShapeKind::Rectangle, fill, line_flags: 0 } }),
                 )
             }
-            1 | 0x101 => {
+            1 => {
                 let img = if u16_at(b, n + 68) == Some(0x8002) { ctx.embedded_image(b, n + 68) } else { None };
                 let (bw, bh) = img.and_then(|h| ctx.images.iter().find(|e| e.handle == h as u32)).map_or((1, 1), |e| (e.width as u32, e.height as u32));
                 (ObjectKind::Backdrop, ObjectProperties::Backdrop(Backdrop { obstacle: 0, collision: 0, width: bw, height: bh, image: img.unwrap_or(0) }))
             }
             _ => {
-                // Shown at start (the format's own "hidden at start" flag isn't known yet).
-                let mut c = ObjectCommon { new_flags: super::properties::oc_new_flags::VISIBLE_AT_START, ..Default::default() };
+                // Shown at start unless the type's 0x800 flag says hidden (text that a
+                // "display text" action shows later).
+                let shown = if hidden { 0 } else { super::properties::oc_new_flags::VISIBLE_AT_START };
+                let mut c = ObjectCommon { new_flags: shown, ..Default::default() };
                 let props = b.get(props_at..(props_at + psz).min(end)).unwrap_or(&[]);
-                if typ == 2 {
+                if base_type == 2 {
                     read_active(props, &mut c);
                 }
-                if typ == 7 {
+                if base_type == 3 {
+                    let (w, h) = (u16_at(b, n + 34).unwrap_or(0) as u32, u16_at(b, n + 36).unwrap_or(0) as u32);
+                    c.text = read_text(props, w, h);
+                }
+                if base_type == 7 {
+                    // `CNTR`, u16 size, then initial, minimum, maximum (i32), then how it shows.
                     if let Some(at) = props.windows(4).position(|w| w == b"CNTR") {
-                        let p = at + 8;
-                        c.counter = Some(CounterSettings { initial: u32_at(props, p).unwrap_or(0) as i32, minimum: u32_at(props, p + 4).unwrap_or(0) as i32, maximum: u32_at(props, p + 8).unwrap_or(999_999_999) as i32 });
+                        let p = at + 6;
+                        let (initial, lo, hi) = (i32_at(props, p).unwrap_or(0), i32_at(props, p + 4).unwrap_or(0), i32_at(props, p + 8).unwrap_or(999_999_999));
+                        let (minimum, maximum) = if lo <= hi { (lo, hi) } else { (0, 999_999_999) };
+                        c.counter = Some(CounterSettings { initial: initial.clamp(minimum, maximum), minimum, maximum });
+                        c.counter_display = read_display(props, p + 12, 0);
                     }
                 }
-                let kind = match typ {
+                // Score / lives: `SCRE` / `LIVE`, then how they show (digit images, or a life
+                // icon repeated per life).
+                for (tag, player_kind) in [(b"SCRE", 5u16), (b"LIVE", 6)] {
+                    if base_type == player_kind {
+                        if let Some(at) = props.windows(4).position(|w| w == tag) {
+                            c.counter_display = read_display(props, at + 4, 1);
+                        }
+                    }
+                }
+                let kind = match base_type {
                     2 => ObjectKind::Active,
+                    3 => ObjectKind::Text,
+                    5 => ObjectKind::Score,
+                    6 => ObjectKind::Lives,
                     7 => ObjectKind::Counter,
-                    0x403 | 3 => ObjectKind::Text,
                     t if t >= 32 => {
                         let slot = t as i16;
                         if !extensions.iter().any(|e| e.handle == slot - 32) {
@@ -429,6 +464,115 @@ fn read_objects(b: &[u8], start: usize, end: usize, base: u16, ctx: &mut Ctx, ob
         objects.push(ObjectInfo { handle, type_id: kind_id, kind, name, flags: 0, ink_effect: 0, ink_effect_param: 0, properties: None, props });
         n += 74 + psz.max(1);
     }
+}
+
+/// The music (MIDI files) and sound banks after the image bank. Each entry: a 32-byte header
+/// (`u32 ?, u16 ?, u32 size, name` up to 18 bytes, `u32 ?`), then `size` bytes: a MIDI file,
+/// or for a sound a 16-byte WAVEFORMAT and the PCM samples (rebuilt here as a WAV file).
+/// The banks are told apart by their contents; the font bank (104-byte LOGFONT entries) is
+/// skipped.
+fn read_audio_banks(b: &[u8], from: usize) -> (super::SoundBank, super::SoundBank) {
+    use super::SoundBank;
+    let (mut music, mut sounds) = (Vec::new(), Vec::new());
+    let mut p = from;
+    while p + 12 < b.len() {
+        let n = u32_at(b, p).unwrap_or(0) as usize;
+        if !(n > 0 && n < 10_000 && u32_at(b, p + 4) == Some((4 + 8 * n) as u32)) {
+            p += 1;
+            continue;
+        }
+        let mut files = Vec::with_capacity(n);
+        let mut end = p + 4 + 8 * n;
+        let mut kind = None;
+        for i in 0..n {
+            let (Some(off), Some(len)) = (u32_at(b, p + 4 + 8 * i), u32_at(b, p + 8 + 8 * i)) else { break };
+            let e = p + off as usize;
+            end = end.max(e + len as usize);
+            if len == 0 {
+                files.push((String::new(), Vec::new()));
+                continue;
+            }
+            let size = u32_at(b, e + 6).unwrap_or(0) as usize;
+            let name = cstr(b, e + 10, 18);
+            let Some(data) = b.get(e + 32..e + 32 + size) else { break };
+            if data.starts_with(b"MThd") {
+                kind = Some(true);
+                files.push((name, data.to_vec()));
+            } else if size > 16 && u16_at(data, 0) == Some(1) {
+                kind = Some(false);
+                let (fmt, pcm) = data.split_at(16);
+                let mut wav = Vec::with_capacity(44 + pcm.len());
+                wav.extend_from_slice(b"RIFF");
+                wav.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+                wav.extend_from_slice(b"WAVEfmt ");
+                wav.extend_from_slice(&16u32.to_le_bytes());
+                wav.extend_from_slice(fmt);
+                wav.extend_from_slice(b"data");
+                wav.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+                wav.extend_from_slice(pcm);
+                files.push((name, wav));
+            } else {
+                files.push((name, Vec::new()));
+            }
+        }
+        match kind {
+            Some(true) if music.is_empty() => music = files,
+            Some(false) if sounds.is_empty() => sounds = files,
+            _ => {}
+        }
+        p = end.max(p + 1);
+    }
+    (SoundBank::from_files(music), SoundBank::from_files(sounds))
+}
+
+/// How a counter, score or lives object shows: `u16 size, u16 type, u16 ?`, then for digit
+/// images (1) and icons (4) `u16 count, u16 images[count]`, for bars (2 vertical, 3
+/// horizontal) `u16 width, u16 ?, r, g, b, ?, u16 height`; 0 = hidden.
+fn read_display(p: &[u8], at: usize, player: u16) -> Option<super::properties::CounterDisplay> {
+    use super::properties::{CounterDisplay, CounterDisplayKind};
+    let typ = u16_at(p, at + 2)?;
+    let images = || -> Vec<u16> {
+        let n = u16_at(p, at + 6).unwrap_or(0) as usize;
+        (0..n.min(16)).filter_map(|k| u16_at(p, at + 8 + 2 * k)).collect()
+    };
+    let (kind, w, h) = match typ {
+        0 => (CounterDisplayKind::Hidden, 0, 0),
+        1 => (CounterDisplayKind::Numbers(images()), 0, 0),
+        4 => (CounterDisplayKind::Animation(images()), 0, 0),
+        2 | 3 => {
+            let w = u16_at(p, at + 6)? as u32;
+            let c = p.get(at + 10..at + 13)?;
+            let h = u16_at(p, at + 14)? as u32;
+            let shape = Shape { border_size: 0, border_color: [0; 4], kind: ShapeKind::Rectangle, fill: Fill::Solid([c[0], c[1], c[2], 255]), line_flags: 0 };
+            (if typ == 2 { CounterDisplayKind::VerticalBar(shape) } else { CounterDisplayKind::HorizontalBar(shape) }, w, h)
+        }
+        t => (CounterDisplayKind::Unknown(t), 0, 0),
+    };
+    Some(CounterDisplay { width: w, height: h, player, flags: 0, font: 0, kind })
+}
+
+/// A text object's `TEXT` block: `u16 size, u16 ?, u16 count, u16 offsets[count]` (from the
+/// size field), then per paragraph `u16 size, u16 font (0xFFFF = as before), u8 r, g, b, u8 ?,
+/// u16 flags (alignment, as in Fusion)` and the zero-ended text. Later paragraphs often keep
+/// the first one's colour (their colour field reads 00 00 80 00).
+pub(crate) fn read_text(p: &[u8], width: u32, height: u32) -> Option<super::properties::TextBlock> {
+    use super::properties::{Paragraph, TextBlock};
+    let at = p.windows(4).position(|w| w == b"TEXT")? + 4;
+    let count = u16_at(p, at + 4)? as usize;
+    let mut paragraphs = Vec::with_capacity(count);
+    let mut colour = [0, 0, 0, 255];
+    for k in 0..count.min(256) {
+        let off = at + u16_at(p, at + 6 + 2 * k)? as usize;
+        let font = u16_at(p, off + 2)?;
+        let c = p.get(off + 4..off + 8)?;
+        if k == 0 || c != [0, 0, 0x80, 0] {
+            colour = [c[0], c[1], c[2], 255];
+        }
+        let flags = u16_at(p, off + 8)?;
+        let text = cstr(p, off + 10, p.len().saturating_sub(off + 10));
+        paragraphs.push(Paragraph { font: if font == 0xFFFF { 0 } else { font }, flags, color: colour, text });
+    }
+    (!paragraphs.is_empty()).then_some(TextBlock { width, height, paragraphs })
 }
 
 /// Extension file name `n` from the header's list (`XXX.COX` -> "xxx").
@@ -516,6 +660,10 @@ fn mmf_number(object_type: i16, num: i16, condition: bool) -> i16 {
             (false, -27) => -30,
             (false, -28) => -29,
             (false, -29) => -28,
+            // Inferred from use: a ball destroyed with an explosion, a ship that dies, on touching
+            // the scenery (-37); something falling in pasted into the scenery on landing (-35).
+            (false, -35) => -23,
+            (false, -37) => -13,
             (_, n) => n,
         }
     } else {
@@ -535,6 +683,8 @@ fn mmf_number(object_type: i16, num: i16, condition: bool) -> i16 {
             (false, 26) => 29,
             (false, 43) => 28,
             (false, 44) => 30,
+            // Paste into the background (its parameter is the paste kind).
+            (false, 45) => 80,
             (false, 46) => 81,
             (false, 47) => 82,
             (_, n) => n,
@@ -625,9 +775,31 @@ mod tests {
     #[test]
     fn run_length_streams() {
         // 2 × 7, then the literal bytes 1 2 3, end.
-        assert_eq!(decode_stream(&[2, 7, 0x83, 1, 2, 3, 0]), vec![7, 7, 1, 2, 3]);
-        // A 2 × 2 picture, rows padded to 4.
-        assert_eq!(decode_rle(&[8, 5, 0], 2, 2), vec![5, 5, 5, 5]);
+        assert_eq!(decode_stream(&[2, 7, 0x83, 1, 2, 3, 0], 1), vec![7, 7, 1, 2, 3]);
+        // 15-bit colour: 3 × 0x7EE0, then the literal pixels 0x0401 0x0422.
+        assert_eq!(decode_stream(&[3, 0xE0, 0x7E, 0x82, 1, 4, 0x22, 4, 0], 2), vec![0x7EE0, 0x7EE0, 0x7EE0, 0x0401, 0x0422]);
+        // A 3 × 2 picture, rows padded to an even number of bytes (4 per row): 1 2 3 _ 4 5 6 _.
+        assert_eq!(decode_rle(&[0x88, 1, 2, 3, 0, 4, 5, 6, 0, 0], 3, 2, 1), vec![1, 2, 3, 4, 5, 6]);
+        // 15-bit pixels are 2 bytes, so rows need no padding.
+        assert_eq!(decode_rle(&[3, 1, 0, 0], 3, 1, 2), vec![1, 1, 1]);
+    }
+
+    #[test]
+    fn text_paragraphs() {
+        // "TEXT", u16 size, u16 ?, u16 count 2, offsets 10 and 23 (from the size field).
+        let mut p = b"TEXT".to_vec();
+        p.extend_from_slice(&[40, 0, 5, 0, 2, 0, 10, 0, 23, 0]);
+        // Paragraph 0: size, font 0, white, centred, "Hi".
+        p.extend_from_slice(&[12, 0, 0, 0, 255, 255, 255, 0, 1, 0]);
+        p.extend_from_slice(b"Hi\0");
+        // Paragraph 1: same font and colour as before (00 00 80 00), "Yo".
+        p.extend_from_slice(&[12, 0, 0xFF, 0xFF, 0, 0, 0x80, 0, 0, 0]);
+        p.extend_from_slice(b"Yo\0");
+        let t = read_text(&p, 100, 20).unwrap();
+        assert_eq!(t.paragraphs.len(), 2);
+        assert_eq!((t.paragraphs[0].text.as_str(), t.paragraphs[0].flags), ("Hi", 1));
+        assert_eq!(t.paragraphs[1].text, "Yo");
+        assert_eq!(t.paragraphs[1].color, [255, 255, 255, 255]);
     }
 
     #[test]
@@ -641,7 +813,7 @@ mod tests {
         // pixel stream at base + 4 = 104: pad up to it
         d.resize(104, 0);
         d.extend_from_slice(&[2, 9, 0]);
-        let (px, mask) = decode_masked(&d, 3, 1);
+        let (px, mask) = decode_masked(&d, 3, 1, 1);
         assert_eq!(mask, vec![false, true, true]);
         assert_eq!(&px[1..], &[9, 9]);
     }

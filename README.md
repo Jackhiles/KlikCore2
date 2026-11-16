@@ -24,7 +24,7 @@ cargo run --release -- path/to/game.ccn --extract out/
 | 6 | Pixel-accurate and rotated/scaled collisions, backdrop obstacles, platform movement, frame transitions, paste into background | done |
 | 7 | Perspective distortion effect (panorama, perspective, sine wave / offset) | done |
 | 8 | Multimedia Fusion 1.5 games (older compression, headers, objects, events, banks) | done |
-| 9 | Click & Create / The Games Factory games (`.cca` beside the runtime .exe; see `docs/cca-format.md`) | started: frames, objects, images, events run; sounds, some object types and a few numbers to go |
+| 9 | Click & Create / The Games Factory games (`.cca` beside the runtime .exe; see `docs/cca-format.md`) | done: frames, objects (Active, text, counters, score, lives, backdrops), palette and 16-bit images, sounds and events run; MIDI music isn't played |
 | 9 | More extensions (Date & Time, Cursor), scenario regression tests, performance, audio pan / resume, more ink effects | done |
 
 ### What the loader reads today

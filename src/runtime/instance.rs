@@ -265,7 +265,8 @@ impl Instance {
     }
 
     pub fn set_counter(&mut self, v: Value) {
-        let f = v.as_f64().clamp(self.counter_min, self.counter_max);
+        let (lo, hi) = (self.counter_min.min(self.counter_max), self.counter_max.max(self.counter_min));
+        let f = v.as_f64().clamp(lo, hi);
         self.counter = if matches!(v, Value::Float(_)) {
             Value::Float(f)
         } else {

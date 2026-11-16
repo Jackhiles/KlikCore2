@@ -139,6 +139,26 @@ impl SoundBank {
         Ok(Self { sounds, by_handle })
     }
 
+    /// A bank from ready-made files (Click & Create games), numbered from 0 in order.
+    pub(crate) fn from_files(files: Vec<(String, Vec<u8>)>) -> Self {
+        let sounds: Vec<SoundEntry> = files
+            .into_iter()
+            .enumerate()
+            .map(|(i, (name, data))| SoundEntry {
+                handle: i as u32,
+                name,
+                flags: 0,
+                format: AudioFormat::sniff(&data),
+                decompressed_size: data.len() as u32,
+                name_bytes: 0,
+                compressed: false,
+                payload: Blob::new(data),
+            })
+            .collect();
+        let by_handle = sounds.iter().enumerate().map(|(i, s)| (s.handle, i)).collect();
+        Self { sounds, by_handle }
+    }
+
     /// Builds >= 284 store handles 1-based; they are normalised to the 0-based references used in events.
     pub fn parse(bank: &Blob, unicode: bool, build: u32) -> Result<Self> {
         let mut r = ByteReader::new(bank);

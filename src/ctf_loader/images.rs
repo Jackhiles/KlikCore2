@@ -42,9 +42,9 @@ pub struct ImageEntry {
     old: bool,
     /// Colours for 8-bit palette images.
     palette: Option<std::sync::Arc<Vec<[u8; 4]>>>,
-    /// Click & Create image: `Some(true)` with per-row transparent runs (bank images),
-    /// `Some(false)` one run-length stream over the picture (embedded images).
-    cca: Option<bool>,
+    /// Click & Create image: (per-row transparent runs (bank images) or one run-length stream
+    /// over the picture (embedded images), bytes per pixel: 1 palette, 2 15-bit colour).
+    cca: Option<(bool, u8)>,
 }
 
 #[derive(Debug, Clone)]
@@ -329,7 +329,7 @@ impl ImageEntry {
 
     /// A Click & Create image (see `super::cca`): `data` follows its 24-byte header.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn cca(handle: u32, width: u16, height: u16, hotspot: (i16, i16), action_point: (i16, i16), data: Vec<u8>, masked: bool, palette: std::sync::Arc<Vec<[u8; 4]>>) -> Self {
+    pub(crate) fn cca(handle: u32, width: u16, height: u16, hotspot: (i16, i16), action_point: (i16, i16), data: Vec<u8>, masked: bool, pixel_bytes: u8, palette: std::sync::Arc<Vec<[u8; 4]>>) -> Self {
         Self {
             handle,
             width,
@@ -347,23 +347,31 @@ impl ImageEntry {
             lz4: false,
             old: false,
             palette: Some(palette),
-            cca: Some(masked),
+            cca: Some((masked, pixel_bytes)),
         }
     }
 
     pub fn decode_rgba(&self) -> Result<RgbaImage> {
-        if let Some(masked) = self.cca {
+        if let Some((masked, unit)) = self.cca {
+            let unit = unit as usize;
             let (w, h) = (self.width as usize, self.height as usize);
             let (idx, mask) = if masked {
-                super::cca::decode_masked(&self.compressed, w, h)
+                super::cca::decode_masked(&self.compressed, w, h, unit)
             } else {
-                (super::cca::decode_rle(&self.compressed, w, h), vec![true; w * h])
+                (super::cca::decode_rle(&self.compressed, w, h, unit), vec![true; w * h])
             };
             let pal = self.palette.as_deref().map(Vec::as_slice).unwrap_or(&[]);
             let mut px = vec![0u8; w * h * 4];
             for i in 0..w * h {
                 if mask[i] {
-                    let c = pal.get(idx[i] as usize).copied().unwrap_or([0, 0, 0, 255]);
+                    let c = if unit == 2 {
+                        // 15-bit colour: 0RRRRRGGGGGBBBBB.
+                        let v = idx[i] as u32;
+                        let five = |s: u32| (((v >> s) & 31) * 255 / 31) as u8;
+                        [five(10), five(5), five(0), 255]
+                    } else {
+                        pal.get(idx[i] as usize).copied().unwrap_or([0, 0, 0, 255])
+                    };
                     px[i * 4..i * 4 + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
                 }
             }
