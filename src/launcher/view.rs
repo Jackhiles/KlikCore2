@@ -21,6 +21,7 @@ pub(super) enum MenuAction {
     Upscale(usize, super::upscale::Style),
     AppSettings,
     RemoveUpscale(usize),
+    RepairUpscale(usize),
     Remove(usize),
 }
 
@@ -492,6 +493,7 @@ impl Launcher {
             }
             if !missing && super::upscale::supported() && self.upscaling.is_none() {
                 if super::upscale::has_pack(&path) {
+                    items.push(("Repair AI upscale pack", MenuAction::RepairUpscale(i)));
                     items.push(("Remove AI upscale pack", MenuAction::RemoveUpscale(i)));
                 } else {
                     items.push(("AI upscale: drawn art", MenuAction::Upscale(i, super::upscale::Style::Art)));
@@ -644,10 +646,22 @@ impl Launcher {
                 self.devices_page = false;
                 self.steam_panel = false;
                 self.settings_panel = None;
-                self.app_settings = None;
                 self.show_log = false;
                 self.app_settings = Some(Settings::defaults());
                 self.scroll = 0.0;
+            }
+            MenuAction::RepairUpscale(i) => {
+                let path = self.entries[i].path.clone();
+                self.upscaling = Some(path.clone());
+                self.busy = Some("Checking the AI upscale pack...".into());
+                let tx = self.tx.clone();
+                std::thread::spawn(move || {
+                    let status = tx.clone();
+                    let r = super::upscale::repair_pack(&path, &move |s| {
+                        let _ = status.send(Msg::Status(s));
+                    });
+                    let _ = tx.send(Msg::Upscaled(r.unwrap_or_else(|e| format!("AI upscale repair failed: {e}"))));
+                });
             }
             MenuAction::RemoveUpscale(i) => {
                 let path = self.entries[i].path.clone();

@@ -240,9 +240,13 @@ once through [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) (BSD-3-Clause
 45 MB, is downloaded into `<data dir>\tools\realesrgan` the first time) and saves them as an ordinary replacement
 pack, `mods\<game>\AI upscale\`. The scale brings the game to about 1080p (2x for 720p games, 3x for 480p, up to 4x).
 Drawn art uses the fast `realesr-animevideov3` model; 3D renders and photos use `realesrgan-x4plus` (slower).
-Transparency is rebuilt from the original images. Images the AI gets wrong (the GPU driver can drop a long run, after
-which everything comes out black) are run again in small batches; any that still fail keep their original image.
-It needs a graphics card with Vulkan and takes minutes (about 6 for a game with 600 images on an RTX 3070).
+Transparency is rebuilt from the original images. Every result is shrunk back to the original size and compared with
+it; one that came out darker (the GPU driver can drop a run, after which everything comes out black), in the wrong
+colours, or with its detail wiped out (stars, text, thin lines) is run again in small batches with gentler settings,
+then (3D renders) with the other model; any still wrong keep their original image. Images go through the AI 150 at a
+time, so a dropped run loses little. It needs a graphics card with Vulkan and takes minutes (about 6 for a game with
+600 images on an RTX 3070). **Repair AI upscale pack** (`--upscale repair`) checks an existing pack the same way and
+redoes only the images that are missing or wrong, which also finishes a pack that was stopped part way.
 **Remove AI upscale pack** (or deleting the folder) goes back to the originals. `KLIKCORE_UPSCALE_KEEP=1` keeps the
 working files; `KLIKCORE_MODS_DIR` points the mods folder elsewhere (testing).
 

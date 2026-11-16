@@ -136,8 +136,9 @@ struct Cli {
     saves: Option<String>,
 
     /// Make an AI upscale pack for the game with Real-ESRGAN (downloaded on first use):
-    /// `art` for drawn art, `render` for 3D renders and photos, `remove` to delete the pack.
-    #[arg(long, value_name = "art|render|remove")]
+    /// `art` for drawn art, `render` for 3D renders and photos, `repair` to redo only the
+    /// images of an existing pack that are missing or came out wrong, `remove` to delete it.
+    #[arg(long, value_name = "art|render|repair|remove")]
     upscale: Option<String>,
 
     /// With --upscale: 2, 3 or 4 (default: whatever brings the game to about 1080p).
@@ -279,20 +280,24 @@ fn main() -> Result<()> {
             }
             return Ok(());
         }
-        let Some(style) = upscale::Style::parse(style) else {
-            anyhow::bail!("--upscale takes art, render or remove");
-        };
         // Progress repeats while counting: print a line only when it changes.
         let last = std::cell::RefCell::new(String::new());
-        let r = upscale::make_pack(&game_path, style, cli.upscale_scale, &|s: String| {
+        let progress = |s: String| {
             if *last.borrow() != s {
                 eprintln!("{s}");
                 *last.borrow_mut() = s;
             }
-        });
+        };
+        let r = if style == "repair" {
+            upscale::repair_pack(&game_path, &progress)
+        } else {
+            let Some(style) = upscale::Style::parse(style) else {
+                anyhow::bail!("--upscale takes art, render, repair or remove");
+            };
+            upscale::make_pack(&game_path, style, cli.upscale_scale, &progress)
+        };
         match r {
-            Ok(msg) => println!("{msg}
-{}", upscale::pack_dir(&game_path).display()),
+            Ok(msg) => println!("{msg}\n{}", upscale::pack_dir(&game_path).display()),
             Err(e) => anyhow::bail!(e),
         }
         return Ok(());

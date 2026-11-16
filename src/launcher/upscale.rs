@@ -310,18 +310,77 @@ fn read_rgb(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
     Ok((info.width, info.height, rgb))
 }
 
+/// Images per Real-ESRGAN run. When the GPU driver drops a run ("device lost"), everything
+/// after that point in the run comes out black, so short runs lose little.
+const BATCH: usize = 150;
+
+/// How a pack was made (`pack.ini` in the pack folder), for repairs.
+fn write_pack_info(pack: &Path, style: Style, scale: u32) {
+    let style = match style {
+        Style::Art => "art",
+        Style::Render => "render",
+    };
+    let _ = std::fs::write(pack.join("pack.ini"), format!("[ai-upscale]\r\nstyle={style}\r\nscale={scale}\r\n"));
+}
+
+/// The style and scale an existing pack was made with: from `pack.ini`, the README older
+/// versions wrote, or (a pack that was stopped early) the size of its images.
+fn read_pack_info(game: &GameData, pack: &Path) -> (Style, u32) {
+    let text = std::fs::read_to_string(pack.join("pack.ini")).or_else(|_| std::fs::read_to_string(pack.join("README.txt"))).unwrap_or_default();
+    let mut style = if text.contains("style=render") || text.contains("3D renders style") { Style::Render } else { Style::Art };
+    if text.contains("style=art") {
+        style = Style::Art;
+    }
+    let scale = text
+        .lines()
+        .find_map(|l| l.strip_prefix("scale=").and_then(|v| v.trim().parse::<u32>().ok()))
+        .or_else(|| {
+            // "(realesrgan-x4plus, 3D renders style, 3x)."
+            let i = text.find("x).")?;
+            text[..i].rsplit(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+        })
+        .or_else(|| {
+            let images = pack.join("images");
+            game.images.images.iter().find_map(|e| {
+                let (w, _) = crate::mods::png_size(&images.join(format!("{}.png", e.handle)))?;
+                (e.width >= 16).then(|| (w as f32 / e.width as f32).round() as u32)
+            })
+        })
+        .unwrap_or(2)
+        .clamp(2, 4);
+    (style, scale)
+}
+
 /// Make (or remake) a game's AI upscale pack. `scale` 0 = automatic. Returns a summary.
 pub fn make_pack(game_path: &Path, style: Style, scale: u32, progress: &dyn Fn(String)) -> Result<String, String> {
     let exe = ensure_tool(progress)?;
     progress("Reading the game...".into());
     let game = GameData::load(game_path).map_err(|e| format!("could not load the game: {e}"))?;
     let scale = if scale == 0 { auto_scale(game.header.window_height as u32) } else { scale.clamp(2, 4) };
+    with_work_dir(|inp, outp| run(&game, &exe, style, scale, inp, outp, game_path, false, progress))
+}
+
+/// Check an existing pack against the game's images and redo only the ones that are
+/// missing or came out wrong (black, wrong colours, detail wiped out). Returns a summary.
+pub fn repair_pack(game_path: &Path, progress: &dyn Fn(String)) -> Result<String, String> {
+    let exe = ensure_tool(progress)?;
+    progress("Reading the game...".into());
+    let game = GameData::load(game_path).map_err(|e| format!("could not load the game: {e}"))?;
+    let pack = pack_dir(game_path);
+    if !pack.join("images").is_dir() {
+        return Err("the game has no AI upscale pack".into());
+    }
+    let (style, scale) = read_pack_info(&game, &pack);
+    with_work_dir(|inp, outp| run(&game, &exe, style, scale, inp, outp, game_path, true, progress))
+}
+
+fn with_work_dir(f: impl FnOnce(&Path, &Path) -> Result<String, String>) -> Result<String, String> {
     let work = crate::runtime::files::data_root().join("tmp").join("upscale");
     let (inp, outp) = (work.join("in"), work.join("out"));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&inp).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&outp).map_err(|e| e.to_string())?;
-    let result = run(&game, &exe, style, scale, &inp, &outp, game_path, progress);
+    let result = f(&inp, &outp);
     // KLIKCORE_UPSCALE_KEEP=1 keeps the working files (debugging).
     if std::env::var_os("KLIKCORE_UPSCALE_KEEP").is_none() {
         let _ = std::fs::remove_dir_all(&work);
@@ -329,92 +388,160 @@ pub fn make_pack(game_path: &Path, style: Style, scale: u32, progress: &dyn Fn(S
     result
 }
 
+/// Does an AI result, shrunk back to the original's size (`small`, RGB), still look like
+/// the original? Catches black or grey outputs (also of dark images), wrong colours, and
+/// detail the model wiped out (stars, text, thin lines).
+fn looks_right(orig: &RgbaImage, small: &[u8]) -> bool {
+    let (w, h) = (orig.width as usize, orig.height as usize);
+    let vis = |i: usize| orig.pixels[i * 4 + 3] > 127;
+    let luma = |p: &[u8]| p[0] as f32 * 0.299 + p[1] as f32 * 0.587 + p[2] as f32 * 0.114;
+    let (mut diff, mut lo, mut ls, mut n) = (0f32, 0f32, 0f32, 0f32);
+    let (mut eo, mut es, mut ne) = (0f32, 0f32, 0f32);
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            if !vis(i) {
+                continue;
+            }
+            let (o, s) = (&orig.pixels[i * 4..i * 4 + 3], &small[i * 3..i * 3 + 3]);
+            diff += (o[0].abs_diff(s[0]) as f32 * 0.299) + (o[1].abs_diff(s[1]) as f32 * 0.587) + (o[2].abs_diff(s[2]) as f32 * 0.114);
+            lo += luma(o);
+            ls += luma(s);
+            n += 1.0;
+            // Local contrast against the right and lower neighbours.
+            for j in [(x + 1 < w).then_some(i + 1), (y + 1 < h).then_some(i + w)].into_iter().flatten() {
+                if vis(j) {
+                    eo += (luma(o) - luma(&orig.pixels[j * 4..j * 4 + 3])).abs();
+                    es += (luma(s) - luma(&small[j * 3..j * 3 + 3])).abs();
+                    ne += 1.0;
+                }
+            }
+        }
+    }
+    if n == 0.0 {
+        return true;
+    }
+    let (lo, ls) = (lo / n, ls / n);
+    // Much darker than the original (a dropped GPU run comes out black).
+    if lo > 6.0 && ls < lo * 0.6 {
+        return false;
+    }
+    if diff / n > 24.0 {
+        return false;
+    }
+    // Detail: a faithful enlargement keeps most of the original's local contrast when
+    // shrunk back.
+    if ne > 0.0 && eo / ne > 6.0 && es < eo * 0.4 {
+        return false;
+    }
+    true
+}
+
+/// A pack image (or AI output) shrunk to the original's size, as RGB.
+fn shrunk(path: &Path, orig: &RgbaImage) -> Option<Vec<u8>> {
+    let (aw, ah, rgb) = read_rgb(path).ok()?;
+    Some(resize(&rgb, aw as usize, ah as usize, 3, orig.width as usize, orig.height as usize))
+}
+
 #[allow(clippy::too_many_arguments)]
-fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: &Path, game_path: &Path, progress: &dyn Fn(String)) -> Result<String, String> {
-    // 1. The game's images as colour-only PNGs.
+fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: &Path, game_path: &Path, repair: bool, progress: &dyn Fn(String)) -> Result<String, String> {
+    let pack = pack_dir(game_path);
+    let images = pack.join("images");
+    if !repair {
+        let _ = std::fs::remove_dir_all(&images);
+    }
+    std::fs::create_dir_all(&images).map_err(|e| e.to_string())?;
+
+    // 1. The game's images as colour-only PNGs (in a repair, only those whose pack image is
+    // missing or wrong). Single-colour shapes (text, font glyphs, masks) have nothing for
+    // the AI to add, and on a flat colour the models produce garbage: enlarged directly.
     let total = game.images.images.len();
     let mut sent = Vec::new();
-    // Single-colour shapes (text, font glyphs, masks): nothing for the AI to add, and on a
-    // flat colour the models produce garbage. These are enlarged directly.
-    let mut flat = Vec::new();
+    let (mut written, mut kept) = (0, 0);
     for (k, e) in game.images.images.iter().enumerate() {
         if k % 25 == 0 {
-            progress(format!("Preparing images {}/{total}...", k + 1));
+            progress(format!("{} images {}/{total}...", if repair { "Checking" } else { "Preparing" }, k + 1));
         }
         let Ok(img) = e.decode_rgba() else { continue };
+        let target = images.join(format!("{}.png", e.handle));
         if img.width * img.height < MIN_PIXELS {
             continue;
         }
         if let Some(c) = flat_colour(&img) {
-            flat.push((e.handle, c));
+            let (nw, nh) = target_size(img.width, img.height, scale);
+            let rgb: Vec<u8> = std::iter::repeat_n(c, (nw * nh) as usize).flatten().collect();
+            write_png(&target, nw, nh, png::ColorType::Rgba, &with_alpha(&img, &rgb, nw, nh))?;
+            written += 1;
             continue;
+        }
+        if repair {
+            if shrunk(&target, &img).is_some_and(|s| looks_right(&img, &s)) {
+                kept += 1;
+                continue;
+            }
+            // Wrong or missing: the original is used until a good replacement exists.
+            let _ = std::fs::remove_file(&target);
         }
         let rgb: Vec<u8> = bleed(&img).into_iter().flatten().collect();
         write_png(&inp.join(format!("{}.png", e.handle)), img.width, img.height, png::ColorType::Rgb, &rgb)?;
         sent.push(e.handle);
     }
-    if sent.is_empty() && flat.is_empty() {
+    if sent.is_empty() && written == 0 && kept == 0 {
         return Err("the game has no images to upscale".into());
     }
 
-    // 2. Real-ESRGAN over the folder.
+    // 2. Real-ESRGAN, a batch at a time.
     let (model, model_scale) = match style {
         Style::Art => ("realesr-animevideov3", scale),
         Style::Render => ("realesrgan-x4plus", 4),
     };
     let label = format!("{}, {scale}x", style.label());
-    if !sent.is_empty() {
-        ai_pass(exe, model, model_scale, inp, outp, &[], sent.len(), &label, progress)?;
-    }
-
-    // 3. Back to the wanted size, with the original transparency. Images the AI got wrong
-    // (missing, or black: the GPU driver sometimes drops a long run, "device lost", and
-    // everything after comes out black) are run again in small batches with gentler
-    // settings; any that still fail keep their original image.
-    let pack = pack_dir(game_path);
-    let images = pack.join("images");
-    let _ = std::fs::remove_dir_all(&images);
-    std::fs::create_dir_all(&images).map_err(|e| e.to_string())?;
-    let mut written = 0;
-    for &(h, colour) in &flat {
-        if let Some(orig) = game.images.get(h).and_then(|e| e.decode_rgba().ok()) {
-            let (nw, nh) = target_size(orig.width, orig.height, scale);
-            let rgb: Vec<u8> = std::iter::repeat_n(colour, (nw * nh) as usize).flatten().collect();
-            write_png(&images.join(format!("{h}.png")), nw, nh, png::ColorType::Rgba, &with_alpha(&orig, &rgb, nw, nh))?;
-            written += 1;
+    let staged = inp.with_file_name("batch");
+    for batch in sent.chunks(BATCH) {
+        stage(inp, &staged, batch)?;
+        // A failed run leaves its images missing; they are retried below.
+        if let Err(e) = ai_pass(exe, model, model_scale, &staged, outp, &[], sent.len(), &label, progress) {
+            if !outp.read_dir().is_ok_and(|mut d| d.next().is_some()) {
+                return Err(e);
+            }
         }
     }
+
+    // 3. Back to the wanted size, with the original transparency. Results that don't look
+    // like the original are run again in small batches with gentler GPU settings, then
+    // (3D renders) with the drawn-art model; any still wrong keep their original image.
     let mut todo = sent.clone();
+    let mut fixed_later = 0;
     for attempt in 0..3 {
         let mut failed = Vec::new();
         for (k, &h) in todo.iter().enumerate() {
             if k % 10 == 0 {
-                progress(format!("Saving the pack {}/{}...", k + 1, todo.len()));
+                progress(format!("Checking and saving {}/{}...", k + 1, todo.len()));
             }
             match save_one(game, h, scale, outp, &images)? {
-                true => written += 1,
+                true => {
+                    written += 1;
+                    if attempt > 0 {
+                        fixed_later += 1;
+                    }
+                }
                 false => failed.push(h),
             }
         }
-        if failed.is_empty() || attempt == 2 {
-            todo = failed;
+        todo = failed;
+        if todo.is_empty() || attempt == 2 {
             break;
         }
-        // Again, only the failed ones, 25 at a time (a dropped run then loses little).
-        for (b, batch) in failed.chunks(25).enumerate() {
-            let retry_in = inp.with_file_name("retry");
-            let _ = std::fs::remove_dir_all(&retry_in);
-            std::fs::create_dir_all(&retry_in).map_err(|e| e.to_string())?;
+        let (m, ms, what) = if attempt == 1 && style == Style::Render { ("realesr-animevideov3", scale, "other model") } else { (model, model_scale, "again") };
+        for (b, batch) in todo.chunks(25).enumerate() {
             for h in batch {
-                let name = format!("{h}.png");
-                let _ = std::fs::remove_file(outp.join(&name));
-                std::fs::copy(inp.join(&name), retry_in.join(&name)).map_err(|e| e.to_string())?;
+                let _ = std::fs::remove_file(outp.join(format!("{h}.png")));
             }
-            let what = format!("{label}, again: {}/{}", (b * 25 + batch.len()).min(failed.len()), failed.len());
+            stage(inp, &staged, batch)?;
+            let note = format!("{label}, {what}: {}/{}", (b * 25 + batch.len()).min(todo.len()), todo.len());
             // Errors here just leave those images failed.
-            let _ = ai_pass(exe, model, model_scale, &retry_in, outp, &["-t", "128", "-j", "1:1:1"], 0, &what, progress);
+            let _ = ai_pass(exe, m, ms, &staged, outp, &["-t", "128", "-j", "1:1:1"], 0, &note, progress);
         }
-        todo = failed;
     }
     let skipped = todo.len();
     let readme = format!(
@@ -422,8 +549,24 @@ fn run(game: &GameData, exe: &Path, style: Style, scale: u32, inp: &Path, outp: 
         style.label()
     );
     let _ = std::fs::write(pack.join("README.txt"), readme);
-    let note = if skipped > 0 { format!("; {skipped} kept their original image (the AI failed on them)") } else { String::new() };
-    Ok(format!("AI upscale pack made: {written} images at {scale}x ({}){note}.", style.label()))
+    write_pack_info(&pack, style, scale);
+    let note = if skipped > 0 { format!("; {skipped} kept their original image (the AI got them wrong)") } else { String::new() };
+    if repair {
+        Ok(format!("AI upscale pack repaired: {kept} images were fine, {written} redone ({fixed_later} on a second try){note}."))
+    } else {
+        Ok(format!("AI upscale pack made: {written} images at {scale}x ({}){note}.", style.label()))
+    }
+}
+
+/// Copy some of the prepared images into an empty folder for one Real-ESRGAN run.
+fn stage(inp: &Path, staged: &Path, handles: &[u32]) -> Result<(), String> {
+    let _ = std::fs::remove_dir_all(staged);
+    std::fs::create_dir_all(staged).map_err(|e| e.to_string())?;
+    for h in handles {
+        let name = format!("{h}.png");
+        std::fs::copy(inp.join(&name), staged.join(&name)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// One Real-ESRGAN run over a folder. `count` > 0 shows "done/count" progress.
@@ -469,29 +612,16 @@ fn ai_pass(exe: &Path, model: &str, model_scale: u32, inp: &Path, outp: &Path, e
     Ok(())
 }
 
-/// Turn one AI output into the pack image. Ok(false) when the output is missing or came
-/// out black although the original isn't.
+/// Turn one AI output into the pack image. Ok(false) when the output is missing or doesn't
+/// look like the original (see `looks_right`).
 fn save_one(game: &GameData, h: u32, scale: u32, outp: &Path, images: &Path) -> Result<bool, String> {
     let Ok((aw, ah, rgb)) = read_rgb(&outp.join(format!("{h}.png"))) else { return Ok(false) };
     let Some(orig) = game.images.get(h).and_then(|e| e.decode_rgba().ok()) else { return Ok(true) };
-    // The visible part's average colour must survive (a wrong output is often black or
-    // grey all over).
-    let (ow, oh) = (orig.width, orig.height);
-    let small = resize(&rgb, aw as usize, ah as usize, 3, ow as usize, oh as usize);
-    let (mut a, mut b, mut n) = ([0f64; 3], [0f64; 3], 0f64);
-    for (o, s) in orig.pixels.chunks_exact(4).zip(small.chunks_exact(3)) {
-        if o[3] > 127 {
-            for c in 0..3 {
-                a[c] += o[c] as f64;
-                b[c] += s[c] as f64;
-            }
-            n += 1.0;
-        }
-    }
-    if n > 0.0 && (0..3).map(|c| (a[c] - b[c]).abs() / n).fold(0.0, f64::max) > 48.0 {
+    let small = resize(&rgb, aw as usize, ah as usize, 3, orig.width as usize, orig.height as usize);
+    if !looks_right(&orig, &small) {
         return Ok(false);
     }
-    let (nw, nh) = target_size(ow, oh, scale);
+    let (nw, nh) = target_size(orig.width, orig.height, scale);
     let rgb = resize(&rgb, aw as usize, ah as usize, 3, nw as usize, nh as usize);
     write_png(&images.join(format!("{h}.png")), nw, nh, png::ColorType::Rgba, &with_alpha(&orig, &rgb, nw, nh))?;
     Ok(true)
@@ -547,6 +677,25 @@ mod tests {
         assert_eq!(flat_colour(&img), Some([250, 250, 250]));
         let img = RgbaImage { width: 2, height: 1, pixels: vec![250, 250, 250, 255, 10, 10, 10, 255] };
         assert_eq!(flat_colour(&img), None);
+    }
+
+    #[test]
+    fn wrong_ai_results_are_caught() {
+        // A dark 8x8 checkerboard (low average brightness, lots of detail).
+        let mut px = Vec::new();
+        for y in 0..8 {
+            for x in 0..8 {
+                let v = if (x + y) % 2 == 0 { 90 } else { 10 };
+                px.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let orig = RgbaImage { width: 8, height: 8, pixels: px.clone() };
+        let same: Vec<u8> = px.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+        assert!(looks_right(&orig, &same));
+        // Black (a dropped GPU run): only about 50 off on average, but much darker.
+        assert!(!looks_right(&orig, &vec![0; 8 * 8 * 3]));
+        // Detail wiped out: the right average colour, no checkerboard.
+        assert!(!looks_right(&orig, &vec![50; 8 * 8 * 3]));
     }
 
     #[test]
