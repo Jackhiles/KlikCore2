@@ -3,6 +3,7 @@
 //! Entry point: [`GameData::load`]. Parsing is tolerant: problems in optional
 //! sections are collected in [`GameData::warnings`] instead of aborting the load.
 
+pub mod cca;
 pub mod chunk;
 pub mod events;
 pub mod exe;
@@ -88,6 +89,19 @@ impl GameData {
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let file = Blob::map_file(path).with_context(|| format!("reading {}", path.display()))?;
+        // Click & Create / The Games Factory: the game is a .cca file (beside its runtime .exe).
+        if cca::is_cca(&file) {
+            return cca::load(file, path.to_path_buf());
+        }
+        if let Some(cca_file) = cca::companion(path) {
+            if let Ok(f) = Blob::map_file(&cca_file) {
+                if cca::is_cca(&f) {
+                    let mut g = cca::load(f, cca_file)?;
+                    g.icon = std::fs::read(path).ok().and_then(|b| icon::from_pe(&b));
+                    return Ok(g);
+                }
+            }
+        }
         match Self::from_blob(file, path.to_path_buf()) {
             Ok(g) => Ok(g),
             Err(e) => {

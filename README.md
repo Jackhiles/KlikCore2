@@ -2,7 +2,7 @@
 
 *(Formerly Rekindle. Data from earlier versions moves over automatically; paired devices keep working.)*
 
-A clean-room, open-source runtime for games built with Clickteam Fusion 2.5 and Multimedia Fusion 1.5, written in Rust.
+A clean-room, open-source runtime for games built with Clickteam Fusion 2.5, Multimedia Fusion 1.5 and Click & Create / The Games Factory, written in Rust.
 It works the way ScummVM or OpenMW do: this repository is only the engine. It contains
 **no game data, no assets and no game-specific logic**. You supply the files of a game you own.
 
@@ -24,6 +24,7 @@ cargo run --release -- path/to/game.ccn --extract out/
 | 6 | Pixel-accurate and rotated/scaled collisions, backdrop obstacles, platform movement, frame transitions, paste into background | done |
 | 7 | Perspective distortion effect (panorama, perspective, sine wave / offset) | done |
 | 8 | Multimedia Fusion 1.5 games (older compression, headers, objects, events, banks) | done |
+| 9 | Click & Create / The Games Factory games (`.cca` beside the runtime .exe; see `docs/cca-format.md`) | started: frames, objects, images, events run; sounds, some object types and a few numbers to go |
 | 9 | More extensions (Date & Time, Cursor), scenario regression tests, performance, audio pan / resume, more ink effects | done |
 
 ### What the loader reads today
@@ -339,6 +340,7 @@ src/ctf_loader/   format parser (library, no rendering deps)
   exe.rs          finding game data inside an .exe / .ccn
   chunk.rs        chunk lists, zlib, decryption
   old_inflate.rs  Multimedia Fusion 1.5 decompressor
+  cca.rs          Click & Create / The Games Factory .cca files
   header.rs       application header
   objects.rs      object definitions, ink effects, extension list
   properties.rs   per-type object properties (backdrops, shapes, ObjectCommon, animations)

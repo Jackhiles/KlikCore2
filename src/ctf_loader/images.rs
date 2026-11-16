@@ -42,6 +42,9 @@ pub struct ImageEntry {
     old: bool,
     /// Colours for 8-bit palette images.
     palette: Option<std::sync::Arc<Vec<[u8; 4]>>>,
+    /// Click & Create image: `Some(true)` with per-row transparent runs (bank images),
+    /// `Some(false)` one run-length stream over the picture (embedded images).
+    cca: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +63,12 @@ pub struct ImageBank {
 impl ImageBank {
     /// `build` matters because runtimes from build 284 on store handles 1-based;
     /// they are normalised here so they match the 0-based references in objects.
+    /// A bank from already built entries (Click & Create games).
+    pub(crate) fn from_entries(images: Vec<ImageEntry>) -> Self {
+        let by_handle = images.iter().enumerate().map(|(i, e)| (e.handle, i)).collect();
+        Self { images, by_handle }
+    }
+
     pub fn parse(bank: &Blob, build: u32) -> Result<Self> {
         Self::parse_with(bank, build, false, None)
     }
@@ -123,6 +132,7 @@ impl ImageBank {
                 lz4: false,
                 old: false,
                 palette: palette.clone(),
+                cca: None,
             });
         }
         let by_handle = images
@@ -177,6 +187,7 @@ impl ImageBank {
                 lz4: true,
                 old: false,
                 palette: None,
+                cca: None,
             });
         }
         let by_handle = images.iter().enumerate().map(|(i, e)| (e.handle, i)).collect();
@@ -227,6 +238,7 @@ impl ImageBank {
                 lz4: false,
                 old: true,
                 palette: palette.clone(),
+                cca: None,
             });
         }
         let by_handle = images
@@ -315,7 +327,48 @@ impl ImageEntry {
         matches!(self.graphic_mode, 3 | 4 | 6 | 7 | 8)
     }
 
+    /// A Click & Create image (see `super::cca`): `data` follows its 24-byte header.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn cca(handle: u32, width: u16, height: u16, hotspot: (i16, i16), action_point: (i16, i16), data: Vec<u8>, masked: bool, palette: std::sync::Arc<Vec<[u8; 4]>>) -> Self {
+        Self {
+            handle,
+            width,
+            height,
+            graphic_mode: 3,
+            flags: 0,
+            hotspot,
+            action_point,
+            transparent: [0, 0, 0, 0],
+            data_size: data.len() as u32,
+            decompressed_size: 0,
+            compressed: Blob::new(data),
+            decoded: None,
+            header_size: 0,
+            lz4: false,
+            old: false,
+            palette: Some(palette),
+            cca: Some(masked),
+        }
+    }
+
     pub fn decode_rgba(&self) -> Result<RgbaImage> {
+        if let Some(masked) = self.cca {
+            let (w, h) = (self.width as usize, self.height as usize);
+            let (idx, mask) = if masked {
+                super::cca::decode_masked(&self.compressed, w, h)
+            } else {
+                (super::cca::decode_rle(&self.compressed, w, h), vec![true; w * h])
+            };
+            let pal = self.palette.as_deref().map(Vec::as_slice).unwrap_or(&[]);
+            let mut px = vec![0u8; w * h * 4];
+            for i in 0..w * h {
+                if mask[i] {
+                    let c = pal.get(idx[i] as usize).copied().unwrap_or([0, 0, 0, 255]);
+                    px[i * 4..i * 4 + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
+                }
+            }
+            return Ok(RgbaImage { width: w as u32, height: h as u32, pixels: px });
+        }
         if self.lz4 {
             let mut r = ByteReader::new(&self.compressed);
             let size = r.read_u32()? as usize;
