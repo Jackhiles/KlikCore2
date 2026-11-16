@@ -40,6 +40,39 @@ Each frame starts at its table offset; the u32 before it is its size.
 
 Objects are stored per frame (each frame has its own copies).
 
+### Frame blocks
+
+After the thumbnail, a frame is a run of blocks: `u16 kind, u32 size, payload`.
+
+- **Kind 2, objects:** `u16 count`, then the object records.
+- **Kind 3, instances:** `u16 count`, then `count` × `u32` offsets (the drawing order) into
+  the records that follow; each record is 32 bytes: `u16 object (id − 1)`, `i16 x`, `i16 y`,
+  `u16 type`, type-specific fields, ending in `ff ff`.
+
+### Object records
+
+| Offset from the name | Meaning |
+|---|---|
+| 0 | name (zero-padded, 40 bytes) |
+| 40 | 0 |
+| 42 | type: 2 Active, 7 Counter, 32+ extension, 0x400 \| 0 quick backdrop, 0x400 \| 3 string, 0x100 \| 1 backdrop |
+| 44 | instance count |
+| 46 | object id (from 1; instances use id − 1) |
+| 64 | u32 = the file offset of name + 68 (a reliable signature for finding records) |
+| 68 | u16 tag (0x8002 when the block is an image) |
+| 70 | u32 size of the properties block that follows at 74 |
+
+Active objects' properties: a few fixed fields, then a movement block `SPRI` (`u32 size`,
+movement type: 0 static, 4 ball, …, then its settings, e.g. the speed), then the animations:
+
+- `u16 size, u16 ?, i16 offsets[16]` (from the start of this header; unused ones negative);
+- each animation: `i16 direction offsets[32]` (from the animation's start; unused ones negative);
+- each direction: `u8 min speed, u8 max speed, u16 repeat, u16 loop-to frame, u16 frame count,
+  u16 image numbers[count]` (image numbers are indices into the image bank).
+
+Then the alterable value names (24 bytes each) and an editor icon (`u16 0x8002, u32 size`, an
+image in the codec below). A quick backdrop's block is its fill tile image.
+
 ## Image bank
 
 Right after the last frame (its offset + its size + 6 bytes): `u32 count`, then `count` pairs
