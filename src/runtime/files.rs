@@ -152,11 +152,18 @@ pub const PROTON_APPDATA: &str = r"C:\users\steamuser\AppData\Roaming";
 /// were filed under `other\MMFApplications`. Move them to where they belong (`appdata\`),
 /// keeping anything already there.
 fn migrate_rootless_appdata(save_root: &Path) {
-    let old = save_root.join("other").join("MMFApplications");
-    if !old.is_dir() {
+    let other = save_root.join("other");
+    let Some(old) = std::fs::read_dir(&other)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.is_dir() && p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("mmfapplications")))
+    else {
         return;
-    }
-    let new = save_root.join("appdata").join("MMFApplications");
+    };
+    // Same spelling as `sandboxed` gives (lowercase).
+    let new = save_root.join("appdata").join("mmfapplications");
     let _ = std::fs::create_dir_all(&new);
     for e in std::fs::read_dir(&old).into_iter().flatten().flatten() {
         let to = new.join(e.file_name());
@@ -165,7 +172,23 @@ fn migrate_rootless_appdata(save_root: &Path) {
         }
     }
     let _ = std::fs::remove_dir(&old);
-    let _ = std::fs::remove_dir(save_root.join("other"));
+    let _ = std::fs::remove_dir(&other);
+}
+
+/// `base` joined with `parts`, following the real spelling of folders and files that exist
+/// (save-folder paths are lowercase; Linux file names are case-sensitive).
+fn join_existing_case(base: PathBuf, parts: &[String]) -> PathBuf {
+    let mut out = base;
+    for part in parts {
+        let real = std::fs::read_dir(&out)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.file_name())
+            .find(|n| n.to_string_lossy().eq_ignore_ascii_case(part));
+        out.push(real.unwrap_or_else(|| part.into()));
+    }
+    out
 }
 
 impl SaveFs {
@@ -323,16 +346,13 @@ impl SaveFs {
         // Linux / Steam Deck: AppData and C:\ are inside the original's Proton prefix.
         if !cfg!(windows) && area != "app" {
             let drive_c = self.prefix.clone()?;
-            let mut out = match area.as_str() {
-                "appdata" => drive_c.join("users").join("steamuser").join("AppData").join("Roaming"),
+            let base = match area.as_str() {
+                "appdata" => join_existing_case(drive_c, &["users", "steamuser", "AppData", "Roaming"].map(String::from)),
                 "other" if rest.first().is_some_and(|d| d.eq_ignore_ascii_case("c")) => drive_c,
                 _ => return None,
             };
             let skip = usize::from(area == "other");
-            for r in &rest[skip..] {
-                out.push(r);
-            }
-            return Some(out);
+            return Some(join_existing_case(base, &rest[skip..]));
         }
         let mut out = match area.as_str() {
             "app" => self.app_dir.clone(),
@@ -411,18 +431,20 @@ mod tests {
         let root = std::env::temp_dir().join(format!("klikcore-proton-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let save = root.join("saves");
-        std::fs::create_dir_all(save.join("other").join("MMFApplications")).unwrap();
-        std::fs::write(save.join("other").join("MMFApplications").join("old"), b"1").unwrap();
+        std::fs::create_dir_all(save.join("other").join("mmfapplications")).unwrap();
+        std::fs::write(save.join("other").join("mmfapplications").join("old"), b"1").unwrap();
         let drive_c = root.join("pfx").join("drive_c");
+        let roaming = drive_c.join("users").join("steamuser").join("AppData").join("Roaming");
+        std::fs::create_dir_all(roaming.join("MMFApplications")).unwrap();
         let fs = SaveFs::new(&root.join("game").join("game.exe"), save.clone()).with_prefix(Some(drive_c.clone()));
         // The old location moved.
-        assert!(save.join("appdata").join("MMFApplications").join("old").is_file());
+        assert!(save.join("appdata").join("mmfapplications").join("old").is_file());
         assert!(!save.join("other").exists());
         // An INI in AppData lands in appdata\ and maps to the prefix's Roaming folder.
         let ini = format!(r"{PROTON_APPDATA}\MMFApplications\game1");
         let boxed = fs.sandboxed(&ini);
-        assert_eq!(boxed, save.join("appdata").join("MMFApplications").join("game1"));
-        let roaming = drive_c.join("users").join("steamuser").join("AppData").join("Roaming");
+        assert_eq!(boxed, save.join("appdata").join("mmfapplications").join("game1"));
+        // The prefix's own spelling (MMFApplications) is followed.
         assert_eq!(fs.original_of(&boxed), Some(roaming.join("MMFApplications").join("game1")));
         // C:\ files map to drive_c; no prefix, no original location.
         assert_eq!(fs.original_of(&save.join("other").join("c").join("x.sav")), Some(drive_c.join("x.sav")));
