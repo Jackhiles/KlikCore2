@@ -63,7 +63,7 @@ impl Ini {
             .path
             .as_ref()
             .and_then(|p| fs.read(p))
-            .map(|b| parse(&String::from_utf8_lossy(&b)))
+            .map(|b| parse(&crate::runtime::files::decode_text(&b)))
             .unwrap_or_default();
     }
 

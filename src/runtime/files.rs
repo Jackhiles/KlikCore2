@@ -39,6 +39,24 @@ fn norm(p: &str) -> String {
 }
 
 /// Default save folder for a game title: %APPDATA%\KlikCore\<title> (or ~/.local/share/KlikCore/<title>).
+/// A text file's contents as a string: UTF-16 (little or big endian) or UTF-8 when it starts
+/// with that byte-order mark, otherwise UTF-8 (invalid bytes replaced).
+pub fn decode_text(b: &[u8]) -> String {
+    let utf16 = |b: &[u8], be: bool| {
+        let units: Vec<u16> = b
+            .chunks_exact(2)
+            .map(|c| if be { u16::from_be_bytes([c[0], c[1]]) } else { u16::from_le_bytes([c[0], c[1]]) })
+            .collect();
+        String::from_utf16_lossy(&units)
+    };
+    match b {
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, false),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, true),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
+        _ => String::from_utf8_lossy(b).into_owned(),
+    }
+}
+
 pub fn default_save_root(title: &str) -> PathBuf {
     let safe: String = title
         .chars()
@@ -421,6 +439,16 @@ impl SaveFs {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn text_files_with_byte_order_marks() {
+        let le: Vec<u8> = [0xFF, 0xFE].into_iter().chain("#T03\r\nHey".encode_utf16().flat_map(u16::to_le_bytes)).collect();
+        assert_eq!(decode_text(&le), "#T03\r\nHey");
+        let be: Vec<u8> = [0xFE, 0xFF].into_iter().chain("ab".encode_utf16().flat_map(u16::to_be_bytes)).collect();
+        assert_eq!(decode_text(&be), "ab");
+        assert_eq!(decode_text(b"\xEF\xBB\xBFplain"), "plain");
+        assert_eq!(decode_text(b"plain"), "plain");
+    }
     use super::*;
 
     /// Linux / Steam Deck: AppData saves are filed as on Windows and map into the original

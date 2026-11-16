@@ -1343,15 +1343,15 @@ impl Viewer {
             {
                 continue;
             }
+            let fx = self.rt.layer_fx(li);
             let xf = Xform {
                 origin,
-                scroll: scroll * coef,
+                scroll: scroll * coef - vec2(fx.offset[0], fx.offset[1]),
                 scale,
             };
             let shown = item.visible || self.show_hidden;
             if shown {
                 // A layer's opacity and tint (Layer object) multiply into its objects'.
-                let fx = self.rt.layer_fx(li);
                 if fx.alpha != 255 || fx.rgb != [255; 3] {
                     let mut tinted = item.clone();
                     for c in 0..3 {

@@ -259,11 +259,13 @@ pub struct LayerFx {
     pub visible: Option<bool>,
     pub alpha: u8,
     pub rgb: [u8; 3],
+    /// How far the layer is drawn from where it scrolls to, in pixels.
+    pub offset: [f32; 2],
 }
 
 impl Default for LayerFx {
     fn default() -> Self {
-        Self { visible: None, alpha: 255, rgb: [255; 3] }
+        Self { visible: None, alpha: 255, rgb: [255; 3], offset: [0.0; 2] }
     }
 }
 

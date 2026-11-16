@@ -388,6 +388,19 @@ impl<'a> Eval<'a> {
             (ObjectKind::Counter, 82) => Value::Int(inst.counter_max as i32),
             (ObjectKind::Text, 81) => Value::Str(inst.text.clone()),
             (ObjectKind::Text, 83) => Value::Int(inst.text.trim().parse().unwrap_or(0)),
+            // Font size (what "set font size" sets): the override, or the paragraph font's height.
+            (ObjectKind::Text, 21) => Value::Int(inst.font_size.map_or_else(
+                || {
+                    use crate::ctf_loader::properties::ObjectProperties;
+                    let font = rt.game.object(inst.oi).and_then(|o| match &o.props {
+                        ObjectProperties::Common(c) => c.text.as_ref().and_then(|t| t.paragraphs.first()).map(|p| p.font as u32),
+                        _ => None,
+                    });
+                    let entry = font.and_then(|h| rt.game.fonts.fonts.iter().find(|f| f.handle == h));
+                    entry.map_or(16, |e| e.height.unsigned_abs().max(6) as i32)
+                },
+                |s| s as i32,
+            )),
             _ => rt.note_unimplemented(
                 format!("expr {}/{}", rt.ace_owner_label(t.object_type), t.num),
                 Value::Int(0),

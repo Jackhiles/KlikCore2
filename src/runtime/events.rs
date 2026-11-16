@@ -1509,15 +1509,18 @@ impl Runtime {
             if label.eq_ignore_ascii_case("ext:select") {
                 return;
             }
-            // Layer object: show / hide a layer (31 / 32), its opacity (46) and tint (47).
+            // Layer object: show / hide a layer (31 / 32), its opacity (46) and tint (47), and
+            // its vertical offset (29: inferred from use, a background moved by a fixed amount
+            // once the player reaches part of a stage).
             // Layers are numbered from 1, as in "move to layer".
-            if label.eq_ignore_ascii_case("ext:layer") && matches!(a.num, 111 | 112 | 126 | 127) {
+            if label.eq_ignore_ascii_case("ext:layer") && matches!(a.num, 109 | 111 | 112 | 126 | 127) {
                 let layer = (self.param_i(a, 0, sel, cur) - 1).max(0) as usize;
                 let v = self.eval_param(a, 1, sel, cur).as_i32();
                 let fx = self.layer_fx.entry(layer).or_default();
                 match a.num {
                     111 => fx.visible = Some(true),
                     112 => fx.visible = Some(false),
+                    109 => fx.offset[1] = v as f32,
                     126 => fx.alpha = v.clamp(0, 255) as u8,
                     _ => fx.rgb = [(v & 255) as u8, ((v >> 8) & 255) as u8, ((v >> 16) & 255) as u8],
                 }
