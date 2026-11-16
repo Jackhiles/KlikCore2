@@ -752,6 +752,10 @@ impl Launcher {
         }
         // The header last, so scrolled content slides under it.
         self.draw_header(sw);
+        // Version in the bottom-left corner (below where toasts appear).
+        let version = format!("v{}", update::current_version());
+        self.text(&version, 13.0, sh - 7.0, 12, Color::new(0.0, 0.0, 0.0, 0.6));
+        self.text(&version, 12.0, sh - 8.0, 12, Color::new(MUTED.r, MUTED.g, MUTED.b, 0.75));
         self.draw_overlays(sw, sh);
         self.draw_pair_prompt(sw, sh);
         self.end_press();
