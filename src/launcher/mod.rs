@@ -8,6 +8,7 @@ pub mod steam;
 pub mod steam_shortcuts;
 mod art;
 pub mod update;
+pub mod upscale;
 mod pages;
 mod view;
 use view::Menu;
@@ -209,6 +210,8 @@ enum Msg {
     Status(String),
     Done(String),
     UpdateAvailable(update::Release),
+    /// An AI upscale pack finished (or failed): the message to show.
+    Upscaled(String),
     /// Steam is open and has no KlikCore shortcut: offer to add one.
     OfferSteamShortcut,
     /// A line for the Steam panel's results.
@@ -250,6 +253,8 @@ struct Launcher {
     /// A newer release, once the background check found one.
     update: Option<update::Release>,
     updating: bool,
+    /// The game an AI upscale pack is being made for (one at a time).
+    upscaling: Option<PathBuf>,
     /// Gamepad navigation: selected card, and this frame's button presses.
     pad: crate::render::pad_source::PadReader,
     pad_held: std::collections::HashSet<gilrs::Button>,
@@ -341,6 +346,7 @@ impl Launcher {
             config: LauncherConfig::load(),
             update: None,
             updating: false,
+            upscaling: None,
             pad: crate::render::pad_source::PadReader::new(),
             pad_held: Default::default(),
             selected: None,
@@ -666,6 +672,11 @@ impl Launcher {
                     self.say(s);
                 }
                 Msg::UpdateAvailable(r) => self.update = Some(r),
+                Msg::Upscaled(s) => {
+                    self.upscaling = None;
+                    self.busy = None;
+                    self.say(s);
+                }
                 Msg::OfferSteamShortcut => self.steam_offer = true,
                 Msg::SteamLine(l) => self.steam_lines.push(l),
                 // Android: the system's install prompt is up; the app restarts as the new

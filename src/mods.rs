@@ -35,7 +35,9 @@ impl Mods {
     pub fn dir_for(game: &Path) -> PathBuf {
         let stem = game.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "game".into());
         let safe: String = stem.chars().map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c }).collect();
-        crate::runtime::files::data_root().join("mods").join(safe.trim())
+        // Testing: KLIKCORE_MODS_DIR replaces the mods folder.
+        let base = std::env::var_os("KLIKCORE_MODS_DIR").map(PathBuf::from).unwrap_or_else(|| crate::runtime::files::data_root().join("mods"));
+        base.join(safe.trim())
     }
 
     /// Create the folder (with a short how-to) if it doesn't exist yet.
@@ -111,6 +113,21 @@ impl Mods {
         decode_png(self.images.get(&handle)?).map_err(|e| eprintln!("mod image {handle}: {e}")).ok()
     }
 
+    /// How much larger the replacement images are than the originals (the largest ratio
+    /// found among a sample; 1.0 = same size or no images). Reads only PNG headers.
+    /// `original` gives an image's original size.
+    pub fn image_scale(&self, original: impl Fn(u32) -> Option<(u32, u32)>) -> f32 {
+        let mut best = 1.0f32;
+        // A sample is enough: packs are made at one scale.
+        for (&h, path) in self.images.iter().take(64) {
+            let (Some((w, _)), Some((ow, _))) = (png_size(path), original(h)) else { continue };
+            if ow > 0 {
+                best = best.max(w as f32 / ow as f32);
+            }
+        }
+        best
+    }
+
     /// The replacement file for sound `handle`.
     pub fn sound(&self, handle: u32) -> Option<Vec<u8>> {
         std::fs::read(self.sounds.get(&handle)?).ok()
@@ -122,6 +139,18 @@ fn is_asset_dir(p: &Path) -> bool {
         let n = n.to_string_lossy().to_lowercase();
         n == "images" || n == "sounds"
     })
+}
+
+/// Width and height from a PNG's header.
+pub fn png_size(path: &Path) -> Option<(u32, u32)> {
+    use std::io::Read;
+    let mut head = [0u8; 24];
+    std::fs::File::open(path).ok()?.read_exact(&mut head).ok()?;
+    if &head[1..4] != b"PNG" || &head[12..16] != b"IHDR" {
+        return None;
+    }
+    let be = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+    Some((be(&head[16..20]), be(&head[20..24])))
 }
 
 fn decode_png(path: &Path) -> Result<RgbaImage, String> {

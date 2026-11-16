@@ -99,6 +99,17 @@ fn curl(args: &[&str]) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Download a file (desktop: curl).
+#[cfg(not(target_os = "android"))]
+pub fn download(url: &str, to: &Path) -> Result<(), String> {
+    curl(&["-o", &to.to_string_lossy(), url]).map(|_| ())
+}
+
+#[cfg(target_os = "android")]
+pub fn download(_url: &str, _to: &Path) -> Result<(), String> {
+    Err("not available on Android".into())
+}
+
 /// The latest release, if it is newer than this build and has a file for this platform.
 pub fn check() -> Result<Option<Release>, String> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");

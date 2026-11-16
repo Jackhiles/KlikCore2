@@ -18,6 +18,8 @@ pub(super) enum MenuAction {
     Mods(usize),
     GameFolder(usize),
     RefreshArt(usize),
+    Upscale(usize, super::upscale::Style),
+    RemoveUpscale(usize),
     Remove(usize),
 }
 
@@ -486,6 +488,14 @@ impl Launcher {
                 items.push(("Mods folder", MenuAction::Mods(i)));
                 items.push(("Open game folder", MenuAction::GameFolder(i)));
             }
+            if !missing && super::upscale::supported() && self.upscaling.is_none() {
+                if super::upscale::has_pack(&path) {
+                    items.push(("Remove AI upscale pack", MenuAction::RemoveUpscale(i)));
+                } else {
+                    items.push(("AI upscale: drawn art", MenuAction::Upscale(i, super::upscale::Style::Art)));
+                    items.push(("AI upscale: 3D renders", MenuAction::Upscale(i, super::upscale::Style::Render)));
+                }
+            }
             items.push(("Refresh artwork", MenuAction::RefreshArt(i)));
             items.push(("Remove from library", MenuAction::Remove(i)));
             self.open_menu(more.x + more.w, more.y + more.h + 6.0, items, true);
@@ -611,6 +621,26 @@ impl Launcher {
                 self.art.remove(&path);
                 self.art_requested.remove(&path);
                 self.say("Making new artwork...");
+            }
+            MenuAction::Upscale(i, style) => {
+                let path = self.entries[i].path.clone();
+                self.upscaling = Some(path.clone());
+                self.busy = Some("Starting the AI upscale...".into());
+                let tx = self.tx.clone();
+                std::thread::spawn(move || {
+                    let status = tx.clone();
+                    let r = super::upscale::make_pack(&path, style, 0, &move |s| {
+                        let _ = status.send(Msg::Status(s));
+                    });
+                    let _ = tx.send(Msg::Upscaled(r.unwrap_or_else(|e| format!("AI upscale failed: {e}"))));
+                });
+            }
+            MenuAction::RemoveUpscale(i) => {
+                let path = self.entries[i].path.clone();
+                match super::upscale::remove_pack(&path) {
+                    Ok(()) => self.say("Removed the AI upscale pack (the game uses its original images again)."),
+                    Err(e) => self.say(format!("Could not remove the pack: {e}")),
+                }
             }
             MenuAction::Remove(i) => {
                 let e = self.entries.remove(i);

@@ -563,6 +563,8 @@ struct Textures {
     clock: u64,
     /// Replacement images from mods.
     mods: std::sync::Arc<crate::mods::Mods>,
+    /// Extra texture budget for high-resolution replacement packs (multiplier).
+    budget_scale: usize,
 }
 
 /// A drawable image: a texture and the part of it holding the image.
@@ -708,7 +710,8 @@ impl Textures {
     /// Call once per rendered frame: advance the clock and release old textures (or whole
     /// atlas pages) if the cache is over budget.
     fn end_frame(&mut self) {
-        if self.bytes > texture_budget() {
+        let budget = texture_budget() * self.budget_scale.max(1);
+        if self.bytes > budget {
             // (last used, own texture handle or atlas page, bytes)
             let mut old: Vec<(u64, Result<u32, usize>, usize)> = self
                 .map
@@ -721,7 +724,7 @@ impl Textures {
             }));
             old.sort_unstable_by_key(|e| e.0);
             for (_, what, size) in old {
-                if self.bytes <= texture_budget() * 3 / 4 {
+                if self.bytes <= budget * 3 / 4 {
                     break;
                 }
                 match what {
@@ -763,6 +766,10 @@ struct Viewer {
     fonts: text::Fonts,
     audio: audio_out::AudioOut,
     offscreen: Option<Offscreen>,
+    /// Replacement images are this much larger than the originals (high-resolution or AI
+    /// upscaled packs): the scene is then drawn at window resolution so they keep their
+    /// detail, instead of at the game's resolution and scaled up.
+    pack_scale: f32,
     /// Number of frame entries (frame_log length) the textures/layer toggles were set up for.
     shown_frame: usize,
     scroll: Vec2,
@@ -1259,8 +1266,12 @@ impl Viewer {
         let stretched = self.settings.scaling == settings::Scaling::Stretch;
         let use_offscreen = !self.fit
             && (has_effect || stretched || (scaled && self.settings.filter != settings::Filter::Sharp));
+        // With a high-resolution pack the off-screen image is window-sized (one scale for
+        // both axes; stretching is left to the final blit), so the pack's detail survives.
+        let hi_res = use_offscreen && self.pack_scale > 1.01 && screen_scale > 1.0;
+        let off_scale = if hi_res { (present_size / view).min_element().min(4096.0 / view.max_element()) } else { 1.0 };
         if use_offscreen {
-            let want = (view.x.max(1.0) as u32, view.y.max(1.0) as u32);
+            let want = ((view.x * off_scale).round().max(1.0) as u32, (view.y * off_scale).round().max(1.0) as u32);
             if self.offscreen.as_ref().is_none_or(|o| o.size != want) {
                 self.offscreen = Some(Offscreen::new(want.0, want.1));
             }
@@ -1269,7 +1280,7 @@ impl Viewer {
             clear_background(opaque(g_border));
         }
         let (origin, scale) = if use_offscreen {
-            (Vec2::ZERO, 1.0)
+            (Vec2::ZERO, off_scale)
         } else {
             (screen_origin, screen_scale)
         };
@@ -1344,7 +1355,10 @@ impl Viewer {
         if use_offscreen {
             set_default_camera();
             let off = self.offscreen.as_ref().expect("created");
-            off.present(&off.main, screen_origin, present_size, self.settings.filter);
+            // Already at window resolution: a plain smooth blit (the upscaling filters are
+            // for enlarging the game's own resolution).
+            let filter = if hi_res { settings::Filter::Smooth } else { self.settings.filter };
+            off.present(&off.main, screen_origin, present_size, filter);
         }
         let (origin, scale) = (screen_origin, screen_scale);
 
@@ -1815,6 +1829,7 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         fonts: text::Fonts::default(),
         audio: audio_out::AudioOut::new(!opts.mute && opts.screenshot.is_none()),
         offscreen: None,
+        pack_scale: 1.0,
         scroll: Vec2::ZERO,
         fit: opts.fit,
         show_hidden: opts.show_hidden,
@@ -1856,6 +1871,12 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
             mods.packs.join(", ")
         ));
         eprintln!("Mods: {} images, {} sounds ({})", mods.images.len(), mods.sounds.len(), mods.packs.join(", "));
+    }
+    v.pack_scale = mods.image_scale(|h| v.rt.game.images.get(h).map(|e| (e.width as u32, e.height as u32)));
+    if v.pack_scale > 1.01 {
+        v.log.line(&format!("high-resolution pack (x{:.1}): drawing at window resolution", v.pack_scale));
+        // Larger images need more room before textures are dropped and reloaded.
+        v.textures.budget_scale = (v.pack_scale * v.pack_scale).ceil().min(4.0) as usize;
     }
     v.textures.mods = mods.clone();
     v.audio.mods = mods;

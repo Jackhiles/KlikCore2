@@ -135,6 +135,15 @@ struct Cli {
     #[arg(long, value_name = "status|import|export")]
     saves: Option<String>,
 
+    /// Make an AI upscale pack for the game with Real-ESRGAN (downloaded on first use):
+    /// `art` for drawn art, `render` for 3D renders and photos, `remove` to delete the pack.
+    #[arg(long, value_name = "art|render|remove")]
+    upscale: Option<String>,
+
+    /// With --upscale: 2, 3 or 4 (default: whatever brings the game to about 1080p).
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    upscale_scale: u32,
+
     /// Devices on the local network (no game needed): `list` shows nearby and paired
     /// devices, `pair ID` pairs with one (confirming the code here), `sync` syncs saves with
     /// every paired device that's online, `games ID` lists a paired device's games (copy one
@@ -259,6 +268,33 @@ fn main() -> Result<()> {
     }
     if let Some(f) = cli.dump_events {
         dump::print_events(&game, f);
+        return Ok(());
+    }
+    if let Some(style) = &cli.upscale {
+        use klikcore::launcher::upscale;
+        if style == "remove" {
+            match upscale::remove_pack(&game_path) {
+                Ok(()) => println!("removed {}", upscale::pack_dir(&game_path).display()),
+                Err(e) => println!("nothing removed: {e}"),
+            }
+            return Ok(());
+        }
+        let Some(style) = upscale::Style::parse(style) else {
+            anyhow::bail!("--upscale takes art, render or remove");
+        };
+        // Progress repeats while counting: print a line only when it changes.
+        let last = std::cell::RefCell::new(String::new());
+        let r = upscale::make_pack(&game_path, style, cli.upscale_scale, &|s: String| {
+            if *last.borrow() != s {
+                eprintln!("{s}");
+                *last.borrow_mut() = s;
+            }
+        });
+        match r {
+            Ok(msg) => println!("{msg}
+{}", upscale::pack_dir(&game_path).display()),
+            Err(e) => anyhow::bail!(e),
+        }
         return Ok(());
     }
     if let Some(cmd) = &cli.saves {
