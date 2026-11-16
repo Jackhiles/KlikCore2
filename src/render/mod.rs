@@ -167,8 +167,10 @@ void main() {
         float f = (p.x - 0.5) * 2.0;
         q.y = 0.5 + (p.y - 0.5) / (1.0 + k * f * f);
     } else if (params.x < 1.5) {
-        // Perspective: magnification grows across the width.
-        q.y = 0.5 + (p.y - 0.5) / (1.0 + k * p.x);
+        // Perspective: magnification grows across the width (towards the left / top when
+        // reversed, sent as a fraction on the effect number).
+        float t = fract(params.x) > 0.1 ? 1.0 - p.x : p.x;
+        q.y = 0.5 + (p.y - 0.5) / (1.0 + k * t);
     } else if (params.x < 2.5) {
         // Sine wave.
         q.y = p.y + sin(p.x * params.w * 6.2831853) * k * 0.05;
@@ -1629,7 +1631,7 @@ impl Viewer {
                 material.set_uniform(
                     "params",
                     vec4(
-                        params.effect as f32,
+                        params.effect as f32 + if params.reversed { 0.25 } else { 0.0 },
                         params.vertical as u8 as f32,
                         params.zoom,
                         params.waves,

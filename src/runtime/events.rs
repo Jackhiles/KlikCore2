@@ -1453,7 +1453,8 @@ impl Runtime {
             // 80 set zoom (verified); 81-84 pick the effect in stored order (panorama,
             // perspective, sine wave, sine offset; 81 restores an object that starts as a
             // panorama at the same zoom, 83 is followed by a wave count); 85 wave count,
-            // 86 offset; 87 / 88 horizontal / vertical. (81 is also what a game's office view
+            // 86 offset; 87 / 88 horizontal / vertical; 89 / 90 magnify the left-top / right-bottom
+            // side (the stored pair of flags after the wave count). (81 is also what a game's office view
             // switches to at start, and offices use the panorama effect.)
             let value = matches!(a.num, 80 | 85 | 86).then(|| self.eval_param(a, 0, sel, cur).as_f64() as f32);
             let mut handled = true;
@@ -1467,6 +1468,8 @@ impl Runtime {
                     96 => params.effect = 3,
                     87 => params.vertical = false,
                     88 => params.vertical = true,
+                    89 => params.reversed = true,
+                    90 => params.reversed = false,
                     _ => handled = false,
                 }
             }

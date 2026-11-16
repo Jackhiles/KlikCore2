@@ -419,7 +419,7 @@ mod tests {
         assert!(save.join("appdata").join("MMFApplications").join("old").is_file());
         assert!(!save.join("other").exists());
         // An INI in AppData lands in appdata\ and maps to the prefix's Roaming folder.
-        let ini = format!("{PROTON_APPDATA}\MMFApplications\game1");
+        let ini = format!(r"{PROTON_APPDATA}\MMFApplications\game1");
         let boxed = fs.sandboxed(&ini);
         assert_eq!(boxed, save.join("appdata").join("MMFApplications").join("game1"));
         let roaming = drive_c.join("users").join("steamuser").join("AppData").join("Roaming");

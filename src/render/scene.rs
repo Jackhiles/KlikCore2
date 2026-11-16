@@ -52,6 +52,8 @@ pub struct EffectParams {
     /// 0 panorama, 1 perspective, 2 sine wave, 3 sine offset.
     pub effect: u8,
     pub vertical: bool,
+    /// Perspective effect: the left / top side is magnified instead of the right / bottom.
+    pub reversed: bool,
     pub zoom: f32,
     pub offset: f32,
     pub waves: f32,
@@ -59,7 +61,8 @@ pub struct EffectParams {
 
 impl EffectParams {
     /// Parse the Perspective object's settings block:
-    /// `u32 ?, u16 width, u16 height, u8 effect, u8 direction, u16 pad, i32 zoom, i32 offset, i32 waves, ...`
+    /// `u32 ?, u16 width, u16 height, u8 effect, u8 direction, u16 pad, i32 zoom, i32 offset, i32 waves,
+    /// u8 left/top, u8 right/bottom` (one of the last two is set: which side is magnified).
     pub fn from_perspective_data(d: &[u8]) -> Option<(Self, f32, f32)> {
         let u16_at = |o: usize| d.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
         let i32_at = |o: usize| {
@@ -71,6 +74,7 @@ impl EffectParams {
         let p = Self {
             effect: *d.get(8)?,
             vertical: *d.get(9)? != 0,
+            reversed: d.get(24).copied().unwrap_or(0) != 0 && d.get(25).copied().unwrap_or(1) == 0,
             zoom: i32_at(12)? as f32,
             offset: i32_at(16)? as f32,
             waves: i32_at(20)? as f32,
