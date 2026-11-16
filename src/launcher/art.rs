@@ -306,7 +306,7 @@ pub fn generate(g: &GameData, title: &str, dir: &Path) -> Vec<(&'static str, Pat
     out
 }
 
-/// KlikCore's own library artwork: its icon and name on a warm dark gradient.
+/// KlikCore's own library artwork: its icon and name on a dark mint glow (the icon's colour).
 pub fn generate_brand(dir: &Path) -> Vec<(&'static str, PathBuf)> {
     let _ = std::fs::create_dir_all(dir);
     let Some(icon) = super::icon_image() else { return Vec::new() };
@@ -319,9 +319,9 @@ pub fn generate_brand(dir: &Path) -> Vec<(&'static str, PathBuf)> {
                 let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
                 let glow = (1.0 - ((fx - 0.5).powi(2) + (fy - 0.45).powi(2)).sqrt() * 1.6).max(0.0);
                 let i = (y * w + x) * 4;
-                c.px[i] = (22.0 + 70.0 * glow) as u8;
-                c.px[i + 1] = (16.0 + 30.0 * glow) as u8;
-                c.px[i + 2] = (14.0 + 12.0 * glow) as u8;
+                c.px[i] = (16.0 + 10.0 * glow) as u8;
+                c.px[i + 1] = (18.0 + 56.0 * glow) as u8;
+                c.px[i + 2] = (24.0 + 40.0 * glow) as u8;
                 c.px[i + 3] = 255;
             }
         }

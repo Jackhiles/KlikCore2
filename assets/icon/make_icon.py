@@ -1,94 +1,78 @@
-"""Draw KlikCore's icon: writes klikcore.svg (the design), klikcore-256.png and
-klikcore.ico (16-256 px) next to this script. Needs Pillow: `python make_icon.py`."""
+"""Draw KlikCore 2's icon: a mint hexagon "core" with a light centre on a dark rounded
+tile, and a "2" badge in the corner. Writes klikcore.svg (the design), klikcore-256.png
+and klikcore.ico (16-256 px) next to this script. Needs Pillow: `python make_icon.py`."""
 
+import math
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).parent
+FONT = HERE.parent / "fonts" / "Inter-SemiBold.ttf"
 
-# Shapes in a 1 x 1 box (y down), as cubic Bezier segments: start point, then
-# (control 1, control 2, end) triples.
-OUTER = [(0.50, 0.88),
-         ((0.31, 0.88), (0.20, 0.75), (0.21, 0.60)),
-         ((0.22, 0.47), (0.31, 0.40), (0.36, 0.30)),
-         ((0.38, 0.38), (0.42, 0.42), (0.47, 0.44)),
-         ((0.46, 0.32), (0.50, 0.20), (0.58, 0.11)),
-         ((0.60, 0.24), (0.70, 0.32), (0.76, 0.44)),
-         ((0.82, 0.56), (0.81, 0.70), (0.75, 0.78)),
-         ((0.69, 0.85), (0.60, 0.88), (0.50, 0.88))]
-INNER = [(0.50, 0.86),
-         ((0.39, 0.86), (0.34, 0.78), (0.36, 0.70)),
-         ((0.38, 0.62), (0.46, 0.57), (0.52, 0.44)),
-         ((0.56, 0.54), (0.64, 0.60), (0.65, 0.70)),
-         ((0.66, 0.80), (0.60, 0.86), (0.50, 0.86))]
+TILE = (22, 22, 30)
+MINT_TOP, MINT_BOTTOM = (90, 240, 190), (30, 190, 150)
+LIGHT = (245, 247, 255)
+BADGE_TEXT = (16, 40, 34)
 
-TILE_TOP, TILE_BOTTOM = (40, 38, 52), (16, 15, 22)
-OUTER_TOP, OUTER_BOTTOM = (255, 178, 46), (255, 84, 22)
-INNER_TOP, INNER_BOTTOM = (255, 236, 160), (255, 252, 236)
-GLOW = (255, 110, 30)
+# Design units: a 256 x 256 box.
+CENTRE = (128.0, 122.0)
+HEX_OUTER, HEX_INNER, CORE_R = 84.0, 53.0, 27.0
+BADGE_C, BADGE_R, BADGE_RING = (196.0, 196.0), 34.0, 8.0
 
 
-def bezier_points(path, size, steps=48):
-    pts = [path[0]]
-    for c1, c2, end in path[1:]:
-        p0 = pts[-1]
-        for i in range(1, steps + 1):
-            t = i / steps
-            u = 1 - t
-            x = u**3 * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t**3 * end[0]
-            y = u**3 * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t**3 * end[1]
-            pts.append((x, y))
-    return [(x * size, y * size) for x, y in pts]
+def hexagon(r):
+    return [(CENTRE[0] + r * math.cos(math.radians(60 * k - 90)), CENTRE[1] + r * math.sin(math.radians(60 * k - 90))) for k in range(6)]
 
 
-def vertical_gradient(size, top, bottom):
-    img = Image.new("RGBA", (size, size))
+def gradient(s, top, bottom):
+    img = Image.new("RGBA", (s, s))
     d = ImageDraw.Draw(img)
-    for y in range(size):
-        t = y / max(size - 1, 1)
-        d.line([(0, y), (size, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(top, bottom)) + (255,))
+    for y in range(s):
+        t = y / max(s - 1, 1)
+        d.line([(0, y), (s, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(top, bottom)) + (255,))
     return img
 
 
 def render(size):
-    s = size * 4  # supersample for smooth edges
+    s = size * 4  # supersampled for smooth edges
+    u = s / 256
+    sc = lambda pts: [(x * u, y * u) for x, y in pts]
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    # Rounded tile.
-    tile_mask = Image.new("L", (s, s), 0)
-    ImageDraw.Draw(tile_mask).rounded_rectangle([0, 0, s - 1, s - 1], radius=int(s * 0.22), fill=255)
-    img.paste(vertical_gradient(s, TILE_TOP, TILE_BOTTOM), (0, 0), tile_mask)
-    # Warm glow behind the flame.
-    glow = Image.new("L", (s, s), 0)
-    ImageDraw.Draw(glow).ellipse([s * 0.22, s * 0.38, s * 0.78, s * 0.94], fill=150)
-    glow = glow.filter(ImageFilter.GaussianBlur(s * 0.08))
-    glow_mask = Image.composite(glow, Image.new("L", (s, s), 0), tile_mask)
-    img.paste(Image.new("RGBA", (s, s), GLOW + (255,)), (0, 0), glow_mask)
-    # Flame and core.
-    for path, top, bottom in [(OUTER, OUTER_TOP, OUTER_BOTTOM), (INNER, INNER_TOP, INNER_BOTTOM)]:
-        mask = Image.new("L", (s, s), 0)
-        ImageDraw.Draw(mask).polygon(bezier_points(path, s), fill=255)
-        img.paste(vertical_gradient(s, top, bottom), (0, 0), mask)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([0, 0, s - 1, s - 1], radius=int(s * 0.22), fill=TILE + (255,))
+    # Hexagon ring in mint, its middle back to the tile colour, then the core.
+    mask = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(mask).polygon(sc(hexagon(HEX_OUTER)), fill=255)
+    img.paste(gradient(s, MINT_TOP, MINT_BOTTOM), (0, 0), mask)
+    d.polygon(sc(hexagon(HEX_INNER)), fill=TILE + (255,))
+    cx, cy = CENTRE[0] * u, CENTRE[1] * u
+    d.ellipse([cx - CORE_R * u, cy - CORE_R * u, cx + CORE_R * u, cy + CORE_R * u], fill=LIGHT + (255,))
+    # "2" badge: a tile-coloured ring keeps it apart from the hexagon.
+    bx, by = BADGE_C[0] * u, BADGE_C[1] * u
+    ring = (BADGE_R + BADGE_RING) * u
+    d.ellipse([bx - ring, by - ring, bx + ring, by + ring], fill=TILE + (255,))
+    mask = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(mask).ellipse([bx - BADGE_R * u, by - BADGE_R * u, bx + BADGE_R * u, by + BADGE_R * u], fill=255)
+    img.paste(gradient(s, MINT_TOP, MINT_BOTTOM), (0, 0), mask)
+    font = ImageFont.truetype(str(FONT), int(46 * u))
+    d.text((bx, by + 1 * u), "2", font=font, fill=BADGE_TEXT + (255,), anchor="mm")
     return img.resize((size, size), Image.LANCZOS)
-
-
-def svg_path(path):
-    f = lambda p: f"{p[0] * 256:.1f},{p[1] * 256:.1f}"
-    return "M" + f(path[0]) + "".join(f" C{f(a)} {f(b)} {f(c)}" for a, b, c in path[1:]) + " Z"
 
 
 def write_svg():
     hexc = lambda c: "#%02x%02x%02x" % c
+    pts = lambda p: " ".join(f"{x:.1f},{y:.1f}" for x, y in p)
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{hexc(TILE_TOP)}"/><stop offset="1" stop-color="{hexc(TILE_BOTTOM)}"/></linearGradient>
-    <linearGradient id="outer" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{hexc(OUTER_TOP)}"/><stop offset="1" stop-color="{hexc(OUTER_BOTTOM)}"/></linearGradient>
-    <linearGradient id="inner" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{hexc(INNER_TOP)}"/><stop offset="1" stop-color="{hexc(INNER_BOTTOM)}"/></linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.66" r="0.32"><stop offset="0" stop-color="{hexc(GLOW)}" stop-opacity="0.6"/><stop offset="1" stop-color="{hexc(GLOW)}" stop-opacity="0"/></radialGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{hexc(MINT_TOP)}"/><stop offset="1" stop-color="{hexc(MINT_BOTTOM)}"/></linearGradient>
   </defs>
-  <rect width="256" height="256" rx="56" fill="url(#tile)"/>
-  <rect width="256" height="256" rx="56" fill="url(#glow)"/>
-  <path d="{svg_path(OUTER)}" fill="url(#outer)"/>
-  <path d="{svg_path(INNER)}" fill="url(#inner)"/>
+  <rect width="256" height="256" rx="56" fill="{hexc(TILE)}"/>
+  <polygon points="{pts(hexagon(HEX_OUTER))}" fill="url(#mint)"/>
+  <polygon points="{pts(hexagon(HEX_INNER))}" fill="{hexc(TILE)}"/>
+  <circle cx="{CENTRE[0]}" cy="{CENTRE[1]}" r="{CORE_R}" fill="{hexc(LIGHT)}"/>
+  <circle cx="{BADGE_C[0]}" cy="{BADGE_C[1]}" r="{BADGE_R + BADGE_RING}" fill="{hexc(TILE)}"/>
+  <circle cx="{BADGE_C[0]}" cy="{BADGE_C[1]}" r="{BADGE_R}" fill="url(#mint)"/>
+  <text x="{BADGE_C[0]}" y="{BADGE_C[1]}" dy="0.36em" text-anchor="middle" font-family="Inter, sans-serif" font-weight="600" font-size="46" fill="{hexc(BADGE_TEXT)}">2</text>
 </svg>
 '''
     (HERE / "klikcore.svg").write_text(svg, encoding="utf-8")
@@ -96,8 +80,7 @@ def write_svg():
 
 if __name__ == "__main__":
     write_svg()
-    big = render(256)
-    big.save(HERE / "klikcore-256.png")
+    render(256).save(HERE / "klikcore-256.png")
     sizes = [16, 24, 32, 48, 64, 128, 256]
     render(256).save(HERE / "klikcore.ico", sizes=[(n, n) for n in sizes])
     print("wrote klikcore.svg, klikcore-256.png, klikcore.ico")

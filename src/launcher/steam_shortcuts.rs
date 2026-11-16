@@ -347,6 +347,11 @@ fn write_with_restart(s: &Shortcut, art: &[(&str, PathBuf)], may_restart: bool, 
     Ok((n?, running && !restart))
 }
 
+/// KlikCore's own Steam artwork (for its launcher shortcut), into `dir`.
+pub fn preview_brand_art(dir: &Path) -> Vec<PathBuf> {
+    super::art::generate_brand(dir).into_iter().map(|(_, p)| p).collect()
+}
+
 /// Make the artwork KlikCore would give a game without Steam artwork, into `dir`.
 pub fn preview_art(game: &Path, title: &str, dir: &Path) -> Vec<PathBuf> {
     load_game(game).map(|g| super::art::generate(&g, title, dir).into_iter().map(|(_, p)| p).collect()).unwrap_or_default()

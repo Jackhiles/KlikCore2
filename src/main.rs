@@ -44,8 +44,9 @@ struct Cli {
     #[arg(long, requires = "game")]
     add_to_steam: bool,
 
-    /// Write the library artwork KlikCore makes for GAME into DIR (a preview), then exit.
-    #[arg(long, requires = "game", hide = true)]
+    /// Write the library artwork KlikCore makes for GAME (or, without a game, for itself)
+    /// into DIR (a preview), then exit.
+    #[arg(long, hide = true)]
     make_art: Option<PathBuf>,
 
     /// Print a summary of the parsed application, frames, objects and assets (no window).
@@ -200,6 +201,12 @@ fn main() -> Result<()> {
             }
         }
         library::save(&lib);
+        return Ok(());
+    }
+    if let (None, Some(dir)) = (&cli.game, &cli.make_art) {
+        for p in klikcore::launcher::steam_shortcuts::preview_brand_art(dir) {
+            println!("{}", p.display());
+        }
         return Ok(());
     }
     let Some(game_path) = cli.game.clone() else {
