@@ -15,6 +15,37 @@ pub fn set_fullscreen(on: bool) -> bool {
     }
 }
 
+/// The desktop's usable size (without the taskbar), in the window system's units: the
+/// primary monitor's work area on Windows, the connected display's mode on Linux.
+pub fn work_area() -> Option<(f32, f32)> {
+    #[cfg(windows)]
+    return win::work_area();
+    #[cfg(target_os = "linux")]
+    return linux_display();
+    #[allow(unreachable_code)]
+    None
+}
+
+/// The first connected display's current mode, from the kernel's DRM status (works before
+/// a window exists, under X11 and Wayland). A panel or task bar takes about 5%.
+#[cfg(target_os = "linux")]
+fn linux_display() -> Option<(f32, f32)> {
+    let mut best: Option<(f32, f32)> = None;
+    for e in std::fs::read_dir("/sys/class/drm").ok()?.flatten() {
+        let p = e.path();
+        if std::fs::read_to_string(p.join("status")).ok()?.trim() != "connected" {
+            continue;
+        }
+        let modes = std::fs::read_to_string(p.join("modes")).unwrap_or_default();
+        let Some((w, h)) = modes.lines().next().and_then(|m| m.split_once('x')) else { continue };
+        let (w, h) = (w.trim().parse::<f32>().ok()?, h.trim().trim_end_matches(|c: char| !c.is_ascii_digit()).parse::<f32>().ok()?);
+        if best.is_none_or(|b| w * h > b.0 * b.1) {
+            best = Some((w, h * 0.95));
+        }
+    }
+    best
+}
+
 #[cfg(windows)]
 mod win {
     use std::ffi::c_void;
@@ -50,6 +81,16 @@ mod win {
         fn SetWindowPos(wnd: Hwnd, after: Hwnd, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
         fn MonitorFromWindow(wnd: Hwnd, flags: u32) -> *mut c_void;
         fn GetMonitorInfoW(monitor: *mut c_void, info: *mut MonitorInfo) -> i32;
+        fn SystemParametersInfoW(action: u32, param: u32, out: *mut c_void, ini: u32) -> i32;
+    }
+
+    /// The primary monitor's work area (the screen without the taskbar).
+    pub fn work_area() -> Option<(f32, f32)> {
+        const SPI_GETWORKAREA: u32 = 0x30;
+        let mut r = Rect::default();
+        // SAFETY: SPI_GETWORKAREA writes one RECT into `r`.
+        let ok = unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, &mut r as *mut Rect as *mut c_void, 0) };
+        (ok != 0 && r.right > r.left && r.bottom > r.top).then(|| ((r.right - r.left) as f32, (r.bottom - r.top) as f32))
     }
     #[link(name = "kernel32")]
     extern "system" {

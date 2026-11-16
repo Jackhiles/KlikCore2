@@ -263,7 +263,7 @@ answers.
   change, so switching away is instant); on Windows it covers the monitor the window is on, and leaving it puts the
   window back where it was. Your last choice is remembered per game in `klikcore.ini` in the save folder.
 - **Per-game settings** (launcher: **Settings** on a game; stored in `%APPDATA%\KlikCore\settings\<game>.ini`):
-  fullscreen (game default / on / off), window size (auto, 1x-3x), scaling (fit keeps the shape, integer keeps pixels
+  fullscreen (game default / on / off), window size (auto: as large as fits the screen, or 1x-3x), scaling (fit keeps the shape, integer keeps pixels
   crisp, stretch fills the window), upscaling filter (sharp pixels, smooth, enhanced bicubic, HD: bicubic with halo-free edge sharpening for drawn art, or pixel art: Scale2x-style diagonal smoothing), and whether the debug
   HUD shows at start; volume (off, 25-100%); controller options and its button guide; and whether the game's mods
   and AI upscale packs are used. In game: F9 cycles the filter, F10 the scaling, F11 / Alt+Enter toggles fullscreen.

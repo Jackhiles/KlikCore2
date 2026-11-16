@@ -57,7 +57,7 @@ pub struct ViewerOptions {
 pub fn window_conf(g: &GameData, s: &settings::Settings) -> Conf {
     let (w, h) = app_size(g);
     let scale = match s.window_scale {
-        0 => (1600.0 / w).min(900.0 / h).min(1.0),
+        0 => auto_window_scale(w, h, borderless::work_area(), s.scaling == settings::Scaling::Integer),
         k => k as f32,
     };
     Conf {
@@ -82,6 +82,19 @@ pub fn window_conf(g: &GameData, s: &settings::Settings) -> Conf {
             })
             .or_else(crate::launcher::window_icon),
         ..Default::default()
+    }
+}
+
+/// "Auto" window size: as large as fits the desktop (with room for the title bar and some
+/// margin), a whole multiple of the game size with integer scaling. Small games get
+/// bigger, large ones smaller; 1600x900 is assumed when the desktop size is unknown.
+fn auto_window_scale(w: f32, h: f32, desktop: Option<(f32, f32)>, integer: bool) -> f32 {
+    let (dw, dh) = desktop.unwrap_or((1600.0, 900.0));
+    let fit = (dw * 0.92 / w).min((dh * 0.92 - 40.0) / h);
+    if fit >= 1.0 && integer {
+        fit.floor()
+    } else {
+        fit.max(0.25)
     }
 }
 
@@ -2144,5 +2157,23 @@ fn draw_widget(w: &crate::runtime::widgets::Widget, font: Option<&Font>, p: Vec2
                 y += lh;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::auto_window_scale;
+
+    #[test]
+    fn auto_window_fits_the_desktop() {
+        let hd = Some((1920.0, 1040.0));
+        // A 640x480 game on a 1080p desktop grows to just under the height.
+        let s = auto_window_scale(640.0, 480.0, hd, false);
+        assert!(s > 1.8 && 480.0 * s < 1040.0 - 40.0);
+        // Integer scaling: a whole multiple.
+        assert_eq!(auto_window_scale(640.0, 480.0, hd, true), 1.0);
+        assert_eq!(auto_window_scale(320.0, 240.0, hd, true), 3.0);
+        // Too large for the desktop: smaller.
+        assert!(auto_window_scale(2560.0, 1440.0, hd, false) < 1.0);
     }
 }
