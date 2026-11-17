@@ -263,7 +263,7 @@ impl<'a> Eval<'a> {
                     2 => Value::Int(((ms / 1000.0) as i32) % 60),
                     3 => Value::Int((ms / 3_600_000.0) as i32),
                     4 => Value::Int(((ms / 60_000.0) as i32) % 60),
-                    _ => Value::Int(0),
+                    n => rt.note_unimplemented(format!("expr Timer/{n}"), Value::Int(0)),
                 }
             }
             -5 => Value::Int(rt.instances.iter().filter(|i| !i.destroyed).count() as i32),
@@ -293,12 +293,12 @@ impl<'a> Eval<'a> {
             -6 => match t.num {
                 0 => Value::Int(rt.input_mouse.0 as i32),
                 1 => Value::Int(rt.input_mouse.1 as i32),
-                _ => Value::Int(0),
+                n => rt.note_unimplemented(format!("expr Mouse/{n}"), Value::Int(0)),
             },
             -7 => match t.num {
                 0 => Value::Int(rt.score[super::events::player_index(t.object_info)]),
                 1 => Value::Int(rt.lives[super::events::player_index(t.object_info)]),
-                _ => Value::Int(0),
+                n => rt.note_unimplemented(format!("expr Player/{n}"), Value::Int(0)),
             },
             ot if ot >= 2 => self.object_expr(t, a),
             _ => rt.note_unimplemented(format!("expr {}/{}", t.object_type, t.num), Value::Int(0)),
