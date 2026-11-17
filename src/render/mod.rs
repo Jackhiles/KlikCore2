@@ -1128,11 +1128,14 @@ impl Viewer {
             }
             None => Vec2::from(mouse_position()),
         };
-        // A second quick click in the same place is also a double click.
+        // A second quick click in the same place is a double click, and only that (as
+        // Windows reports it): games set things up on the first click that a "click"
+        // event on the second would undo before the "double-click" event uses them.
         let now = get_time();
         for b in 0..3 {
             if self.input.clicked[b] && self.double_clicks.click(b, now, (pointer.x, pointer.y)) {
                 self.input.double_clicked[b] = true;
+                self.input.clicked[b] = false;
             }
         }
         let (origin, size) = self.present();

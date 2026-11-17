@@ -2155,11 +2155,11 @@ impl Runtime {
             // Touch N ended.
             -82 => self.mouse_released && first(self, sel),
             // A new touch.
-            -83 => input.clicked[0],
+            -83 => input.clicked[0] || input.double_clicked[0],
             // Touch N is active.
             -86 => held && first(self, sel),
             // A new touch on an object.
-            -87 => return on_object(self, sel, 0, input.clicked[0]),
+            -87 => return on_object(self, sel, 0, input.clicked[0] || input.double_clicked[0]),
             // Touch N is on an object.
             -88 => {
                 let active = held && first(self, sel);

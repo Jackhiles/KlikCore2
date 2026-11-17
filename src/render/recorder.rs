@@ -36,7 +36,7 @@ impl Recorder {
             self.lines.push(format!("mouse {t} {} {}", m.0, m.1));
         }
         for (b, cmd) in [(0usize, "click"), (2, "rclick")] {
-            if input.clicked[b] {
+            if input.clicked[b] || b == 0 && input.double_clicked[0] {
                 let cmd = if b == 0 && input.double_clicked[0] { "dclick" } else { cmd };
                 self.lines.push(format!("{cmd} {t} {} {}", m.0, m.1));
             }

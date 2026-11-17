@@ -153,7 +153,8 @@ impl InputScript {
                 }
                 Event::Click(t, _, _, b, double) => {
                     if t == tick {
-                        input.clicked[b] = true;
+                        // The second click of a double click is only a double click.
+                        input.clicked[b] = !double;
                         input.double_clicked[b] = double;
                     }
                     if (t..t + TAP_TICKS).contains(&tick) {
