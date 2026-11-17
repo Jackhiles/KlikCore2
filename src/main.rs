@@ -476,6 +476,15 @@ fn run_headless(
             println!("  frame {f} event #{g}: {d:.2?} / {n}");
         }
     }
+    if let Some(p) = &rt.ace_profile {
+        let p = p.borrow();
+        let mut v: Vec<_> = p.iter().collect();
+        v.sort_by_key(|e| std::cmp::Reverse(e.1 .0));
+        println!("slowest conditions (c) / actions (a) by kind (type >= 32 = extensions; loops count inside the action that starts them):");
+        for ((k, t, n), (d, c)) in v.iter().take(20) {
+            println!("  {k} {t}/{n}: {d:.2?} / {c}");
+        }
+    }
     let un = rt.unimplemented.borrow();
     let mut v: Vec<_> = un.iter().collect();
     v.sort_by(|a, b| b.1.cmp(a.1));

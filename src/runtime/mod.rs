@@ -257,10 +257,15 @@ pub struct Runtime {
     masks: RefCell<HashMap<u32, Option<Rc<Mask>>>>,
     /// Per-event time spent (enabled by the KLIKCORE_PROFILE environment variable).
     pub profile: Option<RefCell<EventProfile>>,
+    /// `KLIKCORE_PROFILE=ace`: time per condition / action kind ('c' or 'a', type, number),
+    /// and per part of a tick ('t', 0 movement, 1 events).
+    pub ace_profile: Option<RefCell<HashMap<(char, i16, i16), (std::time::Duration, u64)>>>,
     /// Obstacle instances with their bounding boxes, keyed by (tick, instance count).
     obstacle_cache: RefCell<Option<ObstacleCache>>,
     /// Instance indices per object handle; None = needs rebuilding.
     oi_index: RefCell<Option<HashMap<u16, Vec<usize>>>>,
+    /// The current frame's "on loop" events by loop name (built when first needed).
+    loop_index: RefCell<Option<Rc<events::LoopIndex>>>,
 }
 
 /// What the Layer object changed about a layer.
@@ -369,8 +374,10 @@ impl Runtime {
             cursor_object: None,
             masks: RefCell::new(HashMap::default()),
             oi_index: RefCell::new(None),
+            loop_index: RefCell::new(None),
             obstacle_cache: RefCell::new(None),
             profile: std::env::var_os("KLIKCORE_PROFILE").map(|_| RefCell::new(HashMap::default())),
+            ace_profile: (std::env::var("KLIKCORE_PROFILE").as_deref() == Ok("ace")).then(|| RefCell::new(HashMap::default())),
         };
         rt.load_frame(start_frame);
         rt
@@ -445,6 +452,7 @@ impl Runtime {
             .and_then(|t| TransitionState::new(t, true, None));
         self.background_color = frame.background_color;
         self.events = Rc::new(frame.event_sheet.clone());
+        *self.loop_index.borrow_mut() = None;
         self.groups_disabled = self
             .events
             .groups

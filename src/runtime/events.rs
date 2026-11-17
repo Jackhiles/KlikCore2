@@ -527,49 +527,91 @@ impl Runtime {
         self.probing = false;
     }
 
-    pub(super) fn run_events(&mut self, input: &Input, loop_name: Option<&str>) {
-        let events = self.events.clone();
-        let mut stack: Vec<bool> = Vec::new();
-        for (gi, group) in events.groups.iter().enumerate() {
+    /// Where the "on loop" events are: by (lower-cased) constant loop name, those whose
+    /// name is an expression, and for every event the groups it is inside.
+    fn loop_events_index(&self) -> std::rc::Rc<LoopIndex> {
+        if let Some(ix) = self.loop_index.borrow().as_ref() {
+            return ix.clone();
+        }
+        let mut ix = LoopIndex::default();
+        let mut stack: Vec<Option<u16>> = Vec::new();
+        let mut open: Vec<usize> = Vec::new();
+        for (gi, group) in self.events.groups.iter().enumerate() {
+            ix.parents.push(stack.iter().flatten().copied().collect());
             if let Some(first) = group.conditions.first() {
                 if cond_is(first, SYS, -10) {
-                    let enabled = match first.params.first().map(|p| &p.value) {
-                        Some(Param::Group { id, .. }) => self.group_enabled(*id),
-                        _ => true,
+                    let id = match first.params.first().map(|p| &p.value) {
+                        Some(Param::Group { id, .. }) => Some(*id),
+                        _ => None,
                     };
-                    let parent = stack.last().copied().unwrap_or(true);
-                    stack.push(parent && enabled);
+                    stack.push(id);
+                    open.push(gi);
+                    // The matching end is filled in when it's reached.
+                    ix.info.push(GroupInfo::Header { id, end: usize::MAX });
                     continue;
                 }
                 if cond_is(first, SYS, -11) {
                     stack.pop();
+                    if let Some(h) = open.pop() {
+                        if let GroupInfo::Header { end, .. } = &mut ix.info[h] {
+                            *end = gi;
+                        }
+                    }
+                    ix.info.push(GroupInfo::End);
                     continue;
                 }
             }
-            if !stack.last().copied().unwrap_or(true) {
+            let on_loop = group.conditions.iter().find(|c| cond_is(c, SYS, -16));
+            ix.info.push(GroupInfo::Event {
+                end_of_frame: group.conditions.iter().any(|c| cond_is(c, GAME, -2)),
+                trigger: trigger_kind(group),
+                on_loop: on_loop.is_some(),
+            });
+            let Some(c) = on_loop else { continue };
+            match c.params.first().map(|p| &p.value) {
+                Some(Param::Expression { tokens, .. })
+                    if tokens.len() == 1 && matches!(tokens[0].value, crate::ctf_loader::events::TokenValue::String(_)) =>
+                {
+                    let crate::ctf_loader::events::TokenValue::String(name) = &tokens[0].value else { unreachable!() };
+                    ix.by_name.entry(name.to_lowercase()).or_default().push(gi);
+                }
+                _ => ix.dynamic.push(gi),
+            }
+        }
+        let ix = std::rc::Rc::new(ix);
+        *self.loop_index.borrow_mut() = Some(ix.clone());
+        ix
+    }
+
+    /// One pass of fast loop `name`: only its "on loop" events (in sheet order), through
+    /// the index instead of the whole sheet (loops run many times a tick).
+    fn run_loop_events(&mut self, input: &Input, name: &str) {
+        let ix = self.loop_events_index();
+        let named: &[usize] = ix.by_name.get(&name.to_lowercase()).map_or(&[], Vec::as_slice);
+        // Both lists are in sheet order: merge them.
+        let (mut a, mut b) = (0, 0);
+        let events = self.events.clone();
+        while a < named.len() || b < ix.dynamic.len() {
+            let gi = if b >= ix.dynamic.len() || a < named.len() && named[a] < ix.dynamic[b] {
+                a += 1;
+                named[a - 1]
+            } else {
+                b += 1;
+                ix.dynamic[b - 1]
+            };
+            if !ix.parents[gi].iter().all(|&id| self.group_enabled(id)) {
                 continue;
             }
+            let group = &events.groups[gi];
             let end_of_frame = group.conditions.iter().any(|c| cond_is(c, GAME, -2));
             if end_of_frame != self.end_of_frame_pass {
                 continue;
             }
-            if loop_name.is_none()
-                && !self.end_of_frame_pass
-                && trigger_kind(group) != self.triggered_pass
-            {
-                continue;
-            }
-            let on_loop = group.conditions.iter().find(|c| cond_is(c, SYS, -16));
-            match (loop_name, on_loop) {
-                (None, Some(_)) => continue,
-                (Some(_), None) => continue,
-                (Some(name), Some(c)) => {
-                    let n = self.eval_param(c, 0, &Sel::default(), None).as_string();
-                    if !n.eq_ignore_ascii_case(name) {
-                        continue;
-                    }
+            if b > 0 && ix.dynamic.get(b - 1) == Some(&gi) {
+                let Some(c) = group.conditions.iter().find(|c| cond_is(c, SYS, -16)) else { continue };
+                if !self.eval_param(c, 0, &Sel::default(), None).as_string().eq_ignore_ascii_case(name) {
+                    continue;
                 }
-                (None, None) => {}
             }
             let started = self.profile.as_ref().map(|_| std::time::Instant::now());
             self.run_group(gi, group, input);
@@ -582,6 +624,47 @@ impl Runtime {
             if self.pending.is_some() {
                 break;
             }
+        }
+    }
+
+    pub(super) fn run_events(&mut self, input: &Input, loop_name: Option<&str>) {
+        if let Some(name) = loop_name {
+            return self.run_loop_events(input, name);
+        }
+        let events = self.events.clone();
+        let ix = self.loop_events_index();
+        let mut gi = 0;
+        while gi < events.groups.len() {
+            let group = &events.groups[gi];
+            match ix.info[gi] {
+                // A disabled group: skip to its end (nested groups and all).
+                GroupInfo::Header { id, end } => {
+                    gi = if !id.is_some_and(|id| !self.group_enabled(id)) { gi + 1 } else if end == usize::MAX { events.groups.len() } else { end + 1 };
+                    continue;
+                }
+                GroupInfo::End => {
+                    gi += 1;
+                    continue;
+                }
+                GroupInfo::Event { end_of_frame, trigger, on_loop } => {
+                    if on_loop || end_of_frame != self.end_of_frame_pass || !self.end_of_frame_pass && trigger != self.triggered_pass {
+                        gi += 1;
+                        continue;
+                    }
+                }
+            }
+            let started = self.profile.as_ref().map(|_| std::time::Instant::now());
+            self.run_group(gi, group, input);
+            if let (Some(p), Some(t)) = (&self.profile, started) {
+                let mut map = p.borrow_mut();
+                let e = map.entry((self.frame_index, gi)).or_default();
+                e.0 += t.elapsed();
+                e.1 += 1;
+            }
+            if self.pending.is_some() {
+                break;
+            }
+            gi += 1;
         }
     }
 
@@ -652,22 +735,28 @@ impl Runtime {
     }
 
     fn run_group(&mut self, gi: usize, group: &EventGroup, input: &Input) {
-        // Split on OR conditions; the first block that holds wins.
-        let mut blocks: Vec<Vec<(usize, &Ace)>> = vec![Vec::new()];
-        for (ci, c) in group.conditions.iter().enumerate() {
-            if cond_is(c, SYS, -24) || cond_is(c, SYS, -25) {
-                blocks.push(Vec::new());
-            } else {
-                blocks.last_mut().expect("non-empty").push((ci, c));
-            }
-        }
-        let mut chosen: Option<Sel> = None;
         // Debug: KLIKCORE_TRACE=<event number> prints each condition's result.
         let trace = trace_event() == Some(gi);
-        for block in &blocks {
+        // OR conditions split the event into blocks; the first block that holds wins.
+        // Each block is tested up to its OR (no lists built: this runs for every event,
+        // every tick).
+        let is_or = |c: &Ace| cond_is(c, SYS, -24) || cond_is(c, SYS, -25);
+        let mut chosen: Option<Sel> = None;
+        let mut start = 0;
+        let n = group.conditions.len();
+        while start <= n {
+            let end = group.conditions[start..].iter().position(is_or).map_or(n, |k| start + k);
             let mut sel = Sel::default();
-            if block.iter().all(|&(ci, c)| {
+            if group.conditions[start..end].iter().enumerate().all(|(k, c)| {
+                let ci = start + k;
+                let t0 = self.ace_profile.as_ref().map(|_| std::time::Instant::now());
                 let r = self.eval_condition(gi, ci, c, &mut sel, input);
+                if let (Some(p), Some(t0)) = (&self.ace_profile, t0) {
+                    let mut p = p.borrow_mut();
+                    let e = p.entry(('c', c.object_type.min(32), c.num)).or_default();
+                    e.0 += t0.elapsed();
+                    e.1 += 1;
+                }
                 if trace {
                     eprintln!("frame {} tick {} event #{gi} cond {ci} ({}/{}): {r}", self.frame_index, self.tick, c.object_type, c.num);
                 }
@@ -676,6 +765,7 @@ impl Runtime {
                 chosen = Some(sel);
                 break;
             }
+            start = end + 1;
         }
         let Some(mut sel) = chosen else { return };
 
@@ -722,7 +812,14 @@ impl Runtime {
             st.last_fired = Some(tick);
         }
         for a in &group.actions {
+            let t0 = self.ace_profile.as_ref().map(|_| std::time::Instant::now());
             self.exec_action(a, &mut sel, input);
+            if let (Some(p), Some(t0)) = (&self.ace_profile, t0) {
+                let mut p = p.borrow_mut();
+                let e = p.entry(('a', a.object_type.min(32), a.num)).or_default();
+                e.0 += t0.elapsed();
+                e.1 += 1;
+            }
             if self.pending.is_some() {
                 break;
             }
@@ -2280,6 +2377,25 @@ fn trigger_kind(group: &EventGroup) -> Trigger {
         Some(c) if c.object_type >= 0 && c.num == -2 => Trigger::AnimationEnd,
         _ => Trigger::None,
     }
+}
+
+/// See `Runtime::loop_events_index`.
+#[derive(Debug, Default)]
+pub(crate) struct LoopIndex {
+    by_name: HashMap<String, Vec<usize>>,
+    dynamic: Vec<usize>,
+    /// Per event: the ids of the groups it is inside.
+    parents: Vec<Vec<u16>>,
+    /// Per event: what the main pass needs to know about it.
+    info: Vec<GroupInfo>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum GroupInfo {
+    /// A group's start (`end`: the index of its end).
+    Header { id: Option<u16>, end: usize },
+    End,
+    Event { end_of_frame: bool, trigger: Trigger, on_loop: bool },
 }
 
 /// See [`trigger_kind`]. `None` = the main pass.
