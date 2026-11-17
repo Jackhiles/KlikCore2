@@ -17,6 +17,9 @@ use crate::ctf_loader::{ObjectKind, ObjectProperties};
 use crate::render::scene::Visual;
 use crate::fxhash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
+/// Music lengths share the sound duration cache, keyed with this bit set.
+const MUSIC_KEY: u32 = 0x8000_0000;
+
 /// Selected instance indices per object-info handle (or qualifier).
 pub type Sel = HashMap<u16, Vec<usize>>;
 
@@ -419,6 +422,22 @@ impl Runtime {
             ((v >> 16) & 255) as u8,
             255,
         ]
+    }
+
+    /// One pass of a music bank tune, in ms (read from the MIDI file once).
+    fn music_length_ms(&mut self, handle: u32) -> f64 {
+        if let Some(&ms) = self.audio.durations.get(&(handle | MUSIC_KEY)) {
+            return ms;
+        }
+        let ms = self
+            .game
+            .music
+            .get(handle)
+            .and_then(|e| e.data().ok())
+            .and_then(|d| crate::midi::parse(&d))
+            .map_or(60_000.0, |s| s.duration * 1000.0);
+        self.audio.durations.insert(handle | MUSIC_KEY, ms);
+        ms
     }
 
     fn param_sample(a: &Ace, i: usize) -> Option<u32> {
@@ -827,9 +846,12 @@ impl Runtime {
             (SOUND, -9) => self
                 .audio
                 .is_channel_paused(self.param_i(c, 0, sel, None).max(0) as usize),
-            // Music bank (MIDI etc.) is not played: nothing is ever playing.
-            (SOUND, -2) | (SOUND, -4) => true,
-            (SOUND, -5) | (SOUND, -7) => false,
+            // Music bank: no music playing (-2), this tune not playing (-4), music paused
+            // (-5), this tune paused (-7).
+            (SOUND, -2) => !self.audio.music_playing(None),
+            (SOUND, -4) => !self.audio.music_playing(Self::param_sample(c, 0)),
+            (SOUND, -5) => self.audio.music_paused(None),
+            (SOUND, -7) => self.audio.music_paused(Self::param_sample(c, 0)),
             (t, n) => {
                 self.note_unimplemented(format!("cond {}/{}", self.ace_owner_label(t), n), ());
                 false
@@ -1398,8 +1420,19 @@ impl Runtime {
             // Lock / unlock a channel: keeps automatic channel choice off it. Sounds played
             // without a channel never take one here, so there is nothing to reserve.
             30 | 31 => {}
-            // Music bank (MIDI) and playback frequency are not supported.
-            2 | 3 | 5 | 9 | 10 | 32 | 33 => {}
+            // Music bank (MIDI): play (2), stop (3), play N times (5; 0 = forever), pause
+            // (9) / resume (10).
+            2 | 5 => {
+                if let Some(h) = sample {
+                    let loops = if n == 5 { int(self, 1).max(0) as u32 } else { 1 };
+                    let length = self.music_length_ms(h);
+                    self.audio.play_music(h, loops, length);
+                }
+            }
+            3 => self.audio.stop_music(),
+            9 | 10 => self.audio.pause_music(n == 9),
+            // Playback frequency is not supported.
+            32 | 33 => {}
             16 => {
                 let ch = int(self, 0).max(0) as usize;
                 let ms = self.eval_param(a, 1, sel, None).as_f64();

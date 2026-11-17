@@ -2,6 +2,7 @@
 //! placed objects at their starting positions. No game logic runs yet.
 
 pub mod audio_out;
+mod music;
 mod borderless;
 mod hud;
 pub mod scene;

@@ -41,6 +41,10 @@ embed-resource = "3"
 # Native file dialogs. On Linux (e.g. Steam Deck) the desktop's own picker
 # (kdialog / zenity) is used instead, which avoids GTK / Wayland build dependencies.
 # Android has no file dialogs (games are found in a folder instead).
+# MIDI music outside Windows (Windows uses its own MIDI synthesizer).
+[target.'cfg(not(windows))'.dependencies]
+rustysynth = "1.3"
+
 [target.'cfg(not(any(target_os = "linux", target_os = "android")))'.dependencies]
 rfd = "0.15"
 

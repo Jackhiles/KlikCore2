@@ -14,6 +14,24 @@ pub enum AudioCommand {
     Stop { handle: u32 },
     StopAll,
     SetVolume { handle: u32, volume: f32 },
+    /// Music bank (MIDI): play `handle` `loops` times (0 = forever).
+    PlayMusic { handle: u32, loops: u32, volume: f32 },
+    StopMusic,
+    PauseMusic(bool),
+    MusicVolume(f32),
+}
+
+/// The music bank tune that is playing (one at a time).
+#[derive(Debug, Clone)]
+pub struct Music {
+    pub handle: u32,
+    started_ms: f64,
+    /// 0 = forever.
+    loops: u32,
+    pub paused: bool,
+    paused_at: f64,
+    /// One pass, in ms (from the MIDI file).
+    length_ms: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +61,7 @@ pub struct AudioState {
     pub sample_pan: HashMap<u32, f64>,
     /// Audio clock in ms; keeps running across frames.
     pub clock_ms: f64,
+    pub music: Option<Music>,
 }
 
 impl Default for AudioState {
@@ -58,6 +77,7 @@ impl Default for AudioState {
             channel_pan: [0.0; CHANNELS + 1],
             sample_pan: HashMap::new(),
             clock_ms: 0.0,
+            music: None,
         }
     }
 }
@@ -97,6 +117,12 @@ impl AudioState {
     pub fn update(&mut self, dt_ms: f64) {
         self.clock_ms += dt_ms;
         let now = self.clock_ms;
+        if let Some(m) = &self.music {
+            if !m.paused && m.loops > 0 && now >= m.started_ms + m.length_ms * m.loops as f64 {
+                self.music = None;
+                self.commands.push(AudioCommand::StopMusic);
+            }
+        }
         let mut finished = Vec::new();
         let durations = &self.durations;
         self.playing.retain(|p| {
@@ -128,6 +154,44 @@ impl AudioState {
         let cmd = self.play_command(&p, 0.0);
         self.playing.push(p);
         self.commands.push(cmd);
+    }
+
+    /// Play a music bank tune of `length_ms` (one pass), `loops` times (0 = forever).
+    pub fn play_music(&mut self, handle: u32, loops: u32, length_ms: f64) {
+        self.music = Some(Music { handle, started_ms: self.clock_ms, loops, paused: false, paused_at: 0.0, length_ms: length_ms.max(1.0) });
+        let volume = (self.main_volume / 100.0).clamp(0.0, 1.0) as f32;
+        self.commands.push(AudioCommand::PlayMusic { handle, loops, volume });
+    }
+
+    pub fn stop_music(&mut self) {
+        if self.music.take().is_some() {
+            self.commands.push(AudioCommand::StopMusic);
+        }
+    }
+
+    pub fn pause_music(&mut self, paused: bool) {
+        let now = self.clock_ms;
+        let Some(m) = &mut self.music else { return };
+        if m.paused == paused {
+            return;
+        }
+        if paused {
+            m.paused_at = now;
+        } else {
+            // The pause doesn't count towards the tune's length.
+            m.started_ms += now - m.paused_at;
+        }
+        m.paused = paused;
+        self.commands.push(AudioCommand::PauseMusic(paused));
+    }
+
+    /// Is a music tune (or this one) playing (not paused)?
+    pub fn music_playing(&self, handle: Option<u32>) -> bool {
+        self.music.as_ref().is_some_and(|m| !m.paused && handle.is_none_or(|h| h == m.handle))
+    }
+
+    pub fn music_paused(&self, handle: Option<u32>) -> bool {
+        self.music.as_ref().is_some_and(|m| m.paused && handle.is_none_or(|h| h == m.handle))
     }
 
     pub fn stop_sample(&mut self, handle: u32) {
@@ -241,6 +305,9 @@ impl AudioState {
 
     /// Re-send volumes after a volume change.
     pub fn refresh_volumes(&mut self) {
+        if self.music.is_some() {
+            self.commands.push(AudioCommand::MusicVolume((self.main_volume / 100.0).clamp(0.0, 1.0) as f32));
+        }
         let cmds: Vec<AudioCommand> = self
             .playing
             .iter()

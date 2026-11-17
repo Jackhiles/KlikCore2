@@ -13,6 +13,7 @@ pub mod launcher;
 pub mod mods;
 /// Log file next to the saves, and panic capture.
 pub mod log;
+pub mod midi;
 /// Macroquad-based frame viewer.
 pub mod render;
 /// Object runtime and event interpreter (no rendering dependencies).

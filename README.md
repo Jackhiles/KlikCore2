@@ -24,7 +24,7 @@ cargo run --release -- path/to/game.ccn --extract out/
 | 6 | Pixel-accurate and rotated/scaled collisions, backdrop obstacles, platform movement, frame transitions, paste into background | done |
 | 7 | Perspective distortion effect (panorama, perspective, sine wave / offset) | done |
 | 8 | Multimedia Fusion 1.5 games (older compression, headers, objects, events, banks) | done |
-| 9 | Click & Create / The Games Factory games (`.cca` beside the runtime .exe; see `docs/cca-format.md`) | done: frames, objects (Active, text, counters, score, lives, backdrops), palette and 16-bit images, sounds and events run; MIDI music isn't played |
+| 9 | Click & Create / The Games Factory games (`.cca` beside the runtime .exe; see `docs/cca-format.md`) | done: frames, objects (Active, text, counters, score, lives, backdrops), palette and 16-bit images, sounds, MIDI music and events run |
 | 9 | More extensions (Date & Time, Cursor), scenario regression tests, performance, audio pan / resume, more ink effects | done |
 
 ### What the loader reads today
@@ -49,7 +49,8 @@ The event interpreter runs each frame's event sheet at the game's frame rate:
 - **Effects**: the Perspective object warps whatever is drawn beneath it (panorama, perspective, sine wave, sine offset) with a GPU shader. Ink effects: semi-transparency, tint / alpha coefficients, add, subtract, invert, and AND / OR / XOR approximated with multiply / screen / difference blending.
 
 ### Audio and HUD objects
-- **Sound**: play sample (once, looped N times, on a channel), stop / pause / resume sample, channel or all, main / sample / channel volume, and the "sample / channel not playing" conditions. All bank formats (WAV PCM/ADPCM, OGG Vorbis, MP3) are decoded with `symphonia` and streamed: each playing sound has a decoder thread that stays a fraction of a second ahead of KlikCore's mixer (`cpal` output), so long music never sits in memory as decoded PCM. Pan, volume, resume after pause and "set position" are applied while streaming; frequency changes and the MIDI music bank are not supported yet. `--mute` turns sound off.
+- **Sound**: play sample (once, looped N times, on a channel), stop / pause / resume sample, channel or all, main / sample / channel volume, and the "sample / channel not playing" conditions. All bank formats (WAV PCM/ADPCM, OGG Vorbis, MP3) are decoded with `symphonia` and streamed: each playing sound has a decoder thread that stays a fraction of a second ahead of KlikCore's mixer (`cpal` output), so long music never sits in memory as decoded PCM. Pan, volume, resume after pause and "set position" are applied while streaming; frequency changes are not supported yet. `--mute` turns sound off.
+- **MIDI music** (the music bank of older games): play, play N times, stop, pause / resume and the music conditions. On Windows it plays on the system's General MIDI synthesizer, as the original runtimes did. Elsewhere a software synthesizer (`rustysynth`) renders it with a General MIDI SoundFont: GeneralUser GS (S. Christian Collins, free to use and share; about 32 MB) is downloaded into `<data dir>/tools/soundfont/` the first time music plays, and any `.sf2` placed there is used instead. `--dump-info -v` lists each tune's length.
 - **Counters, Score, Lives**: digit images, horizontal / vertical bars, image-per-value ("animation") and text display, with their min / max clamping. Score and Lives show the player's score and lives.
 - **String objects**: their paragraph text, colour and alignment, with word wrap. Game data only names fonts (face, size, weight), so the runtime looks the face up among the system's installed fonts (Windows `Fonts` folders, common Linux / macOS folders) and falls back to a default font.
 

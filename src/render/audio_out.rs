@@ -34,6 +34,9 @@ struct Mix {
     muted: bool,
     /// The player's volume setting (0-1), applied to everything.
     master: f32,
+    /// Music bank tune on the software synthesizer.
+    #[cfg(not(windows))]
+    music: Option<super::music::SynthTrack>,
     /// The mixed stereo frames of the current callback.
     scratch: Vec<f32>,
 }
@@ -43,6 +46,13 @@ impl Mix {
     fn render(&mut self, frames: usize) {
         self.scratch.clear();
         self.scratch.resize(frames * 2, 0.0);
+        #[cfg(not(windows))]
+        if let Some(t) = &mut self.music {
+            t.render(&mut self.scratch, frames);
+            if t.finished {
+                self.music = None;
+            }
+        }
         let out = &mut self.scratch;
         self.voices.retain_mut(|v| {
             let (gl, gr) = (v.volume * (1.0 - v.pan.max(0.0)), v.volume * (1.0 + v.pan.min(0.0)));
@@ -91,6 +101,18 @@ pub struct AudioOut {
     pub enabled: bool,
     /// Replacement sounds from mods.
     pub mods: Arc<crate::mods::Mods>,
+    /// The music bank tune playing, and the game's music volume (0-1).
+    music: Option<Arc<super::music::Control>>,
+    music_volume: f32,
+    /// A tune waiting for the software synthesizer's SoundFont.
+    #[cfg(not(windows))]
+    pending_music: Option<(crate::midi::Song, u32, Arc<super::music::Control>)>,
+}
+
+impl Drop for AudioOut {
+    fn drop(&mut self) {
+        self.stop_music();
+    }
 }
 
 fn open_device(mix: Arc<Mutex<Mix>>) -> anyhow::Result<(cpal::Stream, u32)> {
@@ -219,7 +241,20 @@ impl AudioOut {
         } else {
             (None, crate::audio::OUTPUT_RATE)
         };
-        Self { mix, enabled: stream.is_some(), stream, rate, tx, rx, failed: HashSet::new(), mods: Default::default() }
+        Self {
+            mix,
+            enabled: stream.is_some(),
+            stream,
+            rate,
+            tx,
+            rx,
+            failed: HashSet::new(),
+            mods: Default::default(),
+            music: None,
+            music_volume: 1.0,
+            #[cfg(not(windows))]
+            pending_music: None,
+        }
     }
 
     pub fn muted(&self) -> bool {
@@ -228,11 +263,81 @@ impl AudioOut {
 
     pub fn set_muted(&self, on: bool) {
         self.with_mix(|m| m.muted = on);
+        self.refresh_music_gain();
     }
 
     /// Overall volume, 0-100.
     pub fn set_volume(&self, percent: u8) {
         self.with_mix(|m| m.master = percent.min(100) as f32 / 100.0);
+        self.refresh_music_gain();
+    }
+
+    /// How loud music plays. The software synthesizer goes through the mixer (which applies
+    /// the volume setting and mute); the Windows synthesizer doesn't.
+    fn music_gain(&self) -> f32 {
+        #[cfg(windows)]
+        {
+            let (master, muted) = self.mix.lock().map_or((1.0, false), |m| (m.master, m.muted));
+            if muted {
+                0.0
+            } else {
+                self.music_volume * master
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            self.music_volume
+        }
+    }
+
+    fn refresh_music_gain(&self) {
+        if let Some(c) = &self.music {
+            c.set_gain(self.music_gain());
+        }
+    }
+
+    fn stop_music(&mut self) {
+        if let Some(c) = self.music.take() {
+            c.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        #[cfg(not(windows))]
+        {
+            self.pending_music = None;
+            self.with_mix(|m| m.music = None);
+        }
+    }
+
+    fn play_music(&mut self, rt: &Runtime, handle: u32, loops: u32, volume: f32) {
+        self.stop_music();
+        self.music_volume = volume;
+        let song = rt.game.music.get(handle).and_then(|e| e.data().ok()).and_then(|d| crate::midi::parse(&d));
+        let Some(song) = song else {
+            eprintln!("music {handle}: not a MIDI file");
+            return;
+        };
+        let ctl = super::music::Control::new(self.music_gain());
+        self.music = Some(ctl.clone());
+        #[cfg(windows)]
+        super::music::play_system(song, loops, ctl);
+        #[cfg(not(windows))]
+        {
+            self.pending_music = Some((song, loops, ctl));
+            self.start_pending_music();
+        }
+    }
+
+    /// Start a waiting tune once the SoundFont is ready.
+    #[cfg(not(windows))]
+    fn start_pending_music(&mut self) {
+        if self.pending_music.is_none() {
+            return;
+        }
+        let Some(font) = super::music::soundfont() else { return };
+        let Some((song, loops, ctl)) = self.pending_music.take() else { return };
+        let rate = self.rate;
+        if let Some(track) = super::music::SynthTrack::new(&font, rate, song, loops, ctl) {
+            self.with_mix(|m| m.music = Some(track));
+        }
     }
 
     /// Sounds currently playing.
@@ -291,8 +396,21 @@ impl AudioOut {
                         v.volume = volume;
                     }
                 }),
+                AudioCommand::PlayMusic { handle, loops, volume } => self.play_music(rt, handle, loops, volume),
+                AudioCommand::StopMusic => self.stop_music(),
+                AudioCommand::PauseMusic(p) => {
+                    if let Some(c) = &self.music {
+                        c.paused.store(p, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+                AudioCommand::MusicVolume(v) => {
+                    self.music_volume = v;
+                    self.refresh_music_gain();
+                }
             }
         }
+        #[cfg(not(windows))]
+        self.start_pending_music();
         while let Ok(r) = self.rx.try_recv() {
             match r {
                 Report::Duration(handle, ms) => {

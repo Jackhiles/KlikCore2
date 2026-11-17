@@ -109,6 +109,16 @@ pub fn print_info(g: &GameData, verbose: bool) {
             bytes as f64 / 1048576.0
         );
     }
+    // MIDI tunes: name, length (and whether they read).
+    if verbose {
+        for s in &g.music.sounds {
+            let song = s.data().ok().and_then(|d| klikcore::midi::parse(&d));
+            match song {
+                Some(m) => println!("    music {:<3} {:<20} {:>6.1} s, {} events", s.handle, s.name, m.duration, m.events.len()),
+                None => println!("    music {:<3} {:<20} (not a MIDI file)", s.handle, s.name),
+            }
+        }
+    }
     let faces: Vec<_> = g
         .fonts
         .fonts
