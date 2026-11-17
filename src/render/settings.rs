@@ -115,6 +115,8 @@ pub struct Settings {
     pub volume: u8,
     /// Use the game's mods and AI upscale packs.
     pub mods: bool,
+    /// Use the AI upscale pack (when mods are on; Ctrl+U in game).
+    pub ai_pack: bool,
     /// Show the controller's button legend.
     pub pad_legend: bool,
     path: Option<PathBuf>,
@@ -135,6 +137,7 @@ impl Default for Settings {
             touch_controls: TouchMode::Auto,
             volume: 100,
             mods: true,
+            ai_pack: true,
             pad_legend: true,
             path: None,
         }
@@ -210,6 +213,7 @@ impl Settings {
                 "touch_controls" => self.touch_controls = TouchMode::parse(&v).unwrap_or(self.touch_controls),
                 "volume" => self.volume = v.parse::<u8>().unwrap_or(100).min(100),
                 "mods" => self.mods = on,
+                "ai_pack" => self.ai_pack = on,
                 "controller_legend" => self.pad_legend = on,
                 key if key.starts_with("pad_") => {
                     let button = key[4..].to_string();
@@ -237,6 +241,7 @@ impl Settings {
         text += &format!("touch_controls={}\n", self.touch_controls.name());
         text += &format!("volume={}\n", self.volume);
         text += &format!("mods={}\n", self.mods as u8);
+        text += &format!("ai_pack={}\n", self.ai_pack as u8);
         text += &format!("controller_legend={}\n", self.pad_legend as u8);
         for (b, v) in &self.pad_map {
             text += &format!("pad_{b}={v}\n");

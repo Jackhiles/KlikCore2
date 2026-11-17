@@ -206,10 +206,16 @@ impl Launcher {
         let (mut p, close) = self.page_start(top, &title, "Settings are saved right away and apply the next time the game starts.");
         let mut changed = self.game_setting_cards(&mut p, &mut s);
 
-        let mods: [(&str, &str, &[&str], usize); 1] =
-            [("Mods and AI upscale packs", "Replacement images and sounds for this game, if it has any", &["Off", "On"], s.mods as usize)];
-        if let Some((_, k)) = self.settings_card(&mut p, "MODS", &mods) {
-            s.mods = k == 1;
+        let mods: [(&str, &str, &[&str], usize); 2] = [
+            ("Mods and AI upscale packs", "Replacement images and sounds for this game, if it has any", &["Off", "On"], s.mods as usize),
+            ("AI upscale pack", "Its sharper images, or the game's originals (Ctrl+U in game)", &["Off", "On"], s.ai_pack as usize),
+        ];
+        if let Some((row, k)) = self.settings_card(&mut p, "MODS", &mods) {
+            if row == 0 {
+                s.mods = k == 1;
+            } else {
+                s.ai_pack = k == 1;
+            }
             changed = true;
         }
         if changed {

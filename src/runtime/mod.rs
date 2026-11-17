@@ -981,6 +981,48 @@ impl Runtime {
         }
     }
 
+    /// Events of this frame whose actions ran within the last `ticks` ticks:
+    /// (event number, times fired, last tick), most recent first.
+    pub fn recent_events(&self, ticks: u64) -> Vec<(usize, u32, u64)> {
+        let since = self.tick.saturating_sub(ticks);
+        let mut v: Vec<(usize, u32, u64)> = self
+            .event_state
+            .iter()
+            .filter_map(|(&gi, st)| st.last_fired.filter(|&t| t >= since).map(|t| (gi, st.fired, t)))
+            .collect();
+        v.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+        v
+    }
+
+    /// How many times event `gi` of this frame fired.
+    pub fn times_fired(&self, gi: usize) -> u32 {
+        self.event_state.get(&gi).map_or(0, |s| s.fired)
+    }
+
+    /// A short description of event `gi`: the objects its conditions are about.
+    pub fn event_summary(&self, gi: usize) -> String {
+        let Some(g) = self.events.groups.get(gi) else { return String::new() };
+        let mut names: Vec<String> = Vec::new();
+        for c in &g.conditions {
+            let n = if c.object_type < 0 {
+                self.ace_owner_label(c.object_type)
+            } else {
+                self.game.object(c.object_info).map_or_else(|| format!("#{}", c.object_info), |o| o.name.clone())
+            };
+            if !names.contains(&n) {
+                names.push(n);
+            }
+        }
+        names.join(", ")
+    }
+
+    /// Global values that aren't 0, and global strings that aren't empty.
+    pub fn globals_in_use(&self) -> (Vec<(usize, Value)>, Vec<(usize, String)>) {
+        let values = self.global_values.iter().enumerate().filter(|(_, v)| v.as_f64() != 0.0).map(|(i, v)| (i, v.clone())).collect();
+        let strings = self.global_strings.iter().enumerate().filter(|(_, s)| !s.is_empty()).map(|(i, s)| (i, s.clone())).collect();
+        (values, strings)
+    }
+
     pub fn global_value(&self, i: usize) -> Value {
         self.global_values.get(i).cloned().unwrap_or_default()
     }

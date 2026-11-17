@@ -3,6 +3,7 @@
 
 pub mod audio_out;
 mod music;
+mod recorder;
 mod borderless;
 mod hud;
 pub mod scene;
@@ -780,6 +781,17 @@ impl Textures {
         Some(sprite)
     }
 
+    /// Drop every texture and start over with other replacement images (Ctrl+U).
+    fn reset(&mut self, mods: std::sync::Arc<crate::mods::Mods>) {
+        self.map.clear();
+        self.pages.clear();
+        self.bytes = 0;
+        self.standing_in.clear();
+        self.ready.clear();
+        self.decoder = None;
+        self.mods = mods;
+    }
+
     /// Upload replacements the workers finished, a few per frame (each upload of a large
     /// image takes a few ms), in place of the originals standing in.
     fn take_decoded(&mut self) {
@@ -926,6 +938,15 @@ struct Viewer {
     touch: touch::TouchControls,
     /// Discord status while the game runs (cleared when it's dropped).
     _presence: Option<crate::discord::Presence>,
+    /// Ctrl+G / Ctrl+E: the variables and events panels.
+    show_vars: bool,
+    show_events: bool,
+    /// Ctrl+R: recording the player's input into a scenario.
+    recorder: Option<recorder::Recorder>,
+    /// Replacement packs with and without the AI upscale pack (Ctrl+U switches).
+    mods_full: std::sync::Arc<crate::mods::Mods>,
+    mods_plain: std::sync::Arc<crate::mods::Mods>,
+    ai_pack_on: bool,
 }
 
 /// Consecutive failing ticks before the game is paused.
@@ -1139,6 +1160,48 @@ impl Viewer {
         if ctrl && is_key_pressed(KeyCode::F12) {
             self.screenshot_requested = true;
         }
+        // Ctrl+U: AI upscale pack on / off (remembered per game).
+        if ctrl && is_key_pressed(KeyCode::U) {
+            if self.mods_full.packs.iter().any(|p| p == crate::launcher::upscale::PACK_NAME) {
+                self.ai_pack_on = !self.ai_pack_on;
+                self.settings.ai_pack = self.ai_pack_on;
+                self.settings.save();
+                let mods = if self.ai_pack_on { self.mods_full.clone() } else { self.mods_plain.clone() };
+                self.pack_scale = mods.image_scale(|h| self.rt.game.images.get(h).map(|e| (e.width as u32, e.height as u32)));
+                self.textures.budget_scale = if self.pack_scale > 1.01 { (self.pack_scale * self.pack_scale).ceil().min(4.0) as usize } else { 1 };
+                self.textures.reset(mods);
+                self.notice = Some((if self.ai_pack_on { "AI upscale pack on".into() } else { "AI upscale pack off (original images)".into() }, get_time() + 2.0));
+            } else {
+                self.notice = Some(("This game has no AI upscale pack".into(), get_time() + 2.0));
+            }
+        }
+        if ctrl && is_key_pressed(KeyCode::G) {
+            self.show_vars = !self.show_vars;
+        }
+        if ctrl && is_key_pressed(KeyCode::E) {
+            self.show_events = !self.show_events;
+        }
+        // Ctrl+R: restart the frame and record input into a scenario; again to save it.
+        if ctrl && is_key_pressed(KeyCode::R) {
+            match self.recorder.take() {
+                Some(r) => {
+                    let dir = crate::runtime::files::data_root().join("recordings");
+                    let text = match r.save(&dir, self.rt.tick) {
+                        Ok(p) => {
+                            self.log.line(&format!("recording saved to {}", p.display()));
+                            format!("Recording saved: {}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+                        }
+                        Err(e) => format!("Could not save the recording: {e}"),
+                    };
+                    self.notice = Some((text, get_time() + 4.0));
+                }
+                None => {
+                    self.load_frame(self.rt.frame_index);
+                    self.recorder = Some(recorder::Recorder::new(&self.rt.game.path, self.rt.frame_index, self.rt.tick));
+                    self.notice = Some(("Recording input (Ctrl+R to stop and save)".into(), get_time() + 3.0));
+                }
+            }
+        }
         if ctrl && is_key_pressed(KeyCode::M) {
             let m = !self.audio.muted();
             self.audio.set_muted(m);
@@ -1306,6 +1369,9 @@ impl Viewer {
     /// and reported on screen instead of closing the program.
     fn step(&mut self) {
         let input = std::mem::take(&mut self.input);
+        if let Some(r) = &mut self.recorder {
+            r.observe(self.rt.tick, &input, self.rt.scroll);
+        }
         let rt = &mut self.rt;
         let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| rt.tick(&input))).is_ok();
         self.input = input;
@@ -2055,13 +2121,25 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         pad: gamepad::Gamepad::new(&opts.settings, &controls),
         touch,
         _presence: None,
+        // KLIKCORE_PANELS=vars,events opens the debug panels at the start (also in screenshots).
+        show_vars: std::env::var("KLIKCORE_PANELS").is_ok_and(|p| p.contains("vars")),
+        show_events: std::env::var("KLIKCORE_PANELS").is_ok_and(|p| p.contains("events")),
+        recorder: None,
+        mods_full: Default::default(),
+        mods_plain: Default::default(),
+        ai_pack_on: false,
     };
     // Replacement packs for this game.
-    let mods = std::sync::Arc::new(if opts.settings.mods {
-        crate::mods::Mods::load(opts.game_path.as_deref().unwrap_or(&v.rt.game.path))
+    let game_file = opts.game_path.clone().unwrap_or_else(|| v.rt.game.path.clone());
+    let (full, plain) = if opts.settings.mods {
+        (crate::mods::Mods::load(&game_file), crate::mods::Mods::load_without(&game_file, crate::launcher::upscale::PACK_NAME))
     } else {
-        crate::mods::Mods::default()
-    });
+        (crate::mods::Mods::default(), crate::mods::Mods::default())
+    };
+    v.mods_full = std::sync::Arc::new(full);
+    v.mods_plain = std::sync::Arc::new(plain);
+    v.ai_pack_on = opts.settings.ai_pack;
+    let mods = if v.ai_pack_on { v.mods_full.clone() } else { v.mods_plain.clone() };
     v.audio.set_volume(opts.settings.volume);
     if !mods.is_empty() {
         v.log.line(&format!(

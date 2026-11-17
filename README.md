@@ -295,6 +295,10 @@ Many games cover a frame with a fade or transition object that events remove. Wh
 | Ctrl+F12 | screenshot (`%APPDATA%\KlikCore\screenshots\`) |
 | Ctrl+- / Ctrl+= | game speed x0.25 ... x4 |
 | Ctrl+M | mute / unmute |
+| Ctrl+U | AI upscale pack on / off (remembered per game; also on the game's settings page) |
+| Ctrl+G | variables panel: global values and strings in use, every counter, score and lives |
+| Ctrl+E | events panel: events whose actions ran in the last second, how often, and their objects |
+| Ctrl+R | restart the frame and record your input; Ctrl+R again saves it as a scenario in `<data dir>\recordings\` (replay with `--scenario`, add `expect` lines to make it a test) |
 | Ctrl+Q | quit (all other keys go to the game) |
 
 ### Regression scenarios
@@ -308,9 +312,15 @@ click 400 320 240      # left-click at window position (320, 240) at tick 400 (a
 run 900
 expect_frame title     # by name or index; also expect_visited, expect_save, expect_no_unimplemented
 expect "door" value 0 = 1   # object state: counter | value N | x | y | visible
+set "door" @2 x 300    # put an object into a state: counter | value N | x | y | visible (@N: one instance)
+global 3 10            # set global value 3; expect_global 3 >= 10 checks one
+expect_fired 589       # event 589 of the current frame fired (its actions ran)
 dump door              # debug: print objects whose name contains "door"
+dump_events 60         # debug: events fired in the last 60 ticks; dump_globals lists globals in use
 sweep 200              # run every frame for 200 ticks
 ```
+
+A scenario recorded in game with Ctrl+R starts like this already, with your input in it.
 
 Run them with `klikcore --scenario FILE_OR_DIR`, or as part of `cargo test` by setting
 `KLIKCORE_SCENARIOS` to the folder (without it the game tests are skipped). See `src/runtime/scenario.rs`.
@@ -318,7 +328,7 @@ Run them with `klikcore --scenario FILE_OR_DIR`, or as part of `cargo test` by s
 Debug environment variables: `KLIKCORE_PROFILE=1` makes `--headless` print the slowest events;
 `KLIKCORE_NO_EFFECTS=1` disables distortion effects for comparison. `KLIKCORE_TRACE=N` prints each condition result of event N every tick.
 `KLIKCORE_HUD=compact|full|inspect` shows the overlay (also in screenshots). `KLIKCORE_WALK_FRAMES=MS` shows every frame for MS milliseconds and exits (a memory benchmark; not logged as play time).
-`KLIKCORE_SETTINGS="filter=hd;window_scale=2"` overrides player settings for one run (also screenshots). `KLIKCORE_DUMP_SCENE=1` lists what a screenshot draws (object, position, image, ink). `KLIKCORE_PROFILE=1` prints frame timings (with the worst frame and how many took over 25 ms); `KLIKCORE_SYNC_PACK=1` decodes replacement images on the spot instead of on worker threads (for comparison). With `--dump-info --verbose`, `KLIKCORE_ALL_PARAS=1` lists every paragraph of text objects and `KLIKCORE_EXT_DATA=1` prints each extension object's stored settings in hex and `KLIKCORE_ANIMS=1` lists each object's animations; with `--dump-events`, `KLIKCORE_FULL_PARAMS=1` prints parameters in full.
+`KLIKCORE_SETTINGS="filter=hd;window_scale=2"` overrides player settings for one run (also screenshots). `KLIKCORE_DUMP_SCENE=1` lists what a screenshot draws (object, position, image, ink; `=all` includes hidden objects, and the camera position). `KLIKCORE_PANELS=vars,events` opens the debug panels at the start (also in screenshots). `KLIKCORE_TRACE=<event number>` prints each condition's result for that event. `KLIKCORE_PROFILE=1` prints frame timings (with the worst frame and how many took over 25 ms); `KLIKCORE_SYNC_PACK=1` decodes replacement images on the spot instead of on worker threads (for comparison). With `--dump-info --verbose`, `KLIKCORE_ALL_PARAS=1` lists every paragraph of text objects and `KLIKCORE_EXT_DATA=1` prints each extension object's stored settings in hex and `KLIKCORE_ANIMS=1` lists each object's animations; with `--dump-events`, `KLIKCORE_FULL_PARAMS=1` prints parameters in full.
 `KLIKCORE_TEXTURE_MB=N` changes the texture cache budget (default 192 MB): textures are kept in a least-recently-used
 cache, and whatever the current frame draws is never dropped.
 

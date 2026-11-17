@@ -56,8 +56,17 @@ impl Mods {
         Self::load_dir(&Self::dir_for(game))
     }
 
+    /// The packs for a game without the one named `skip` (e.g. the AI upscale pack).
+    pub fn load_without(game: &Path, skip: &str) -> Self {
+        Self::load_dir_filtered(&Self::dir_for(game), Some(skip))
+    }
+
     /// Load the packs in a mods folder.
     pub fn load_dir(dir: &Path) -> Self {
+        Self::load_dir_filtered(dir, None)
+    }
+
+    fn load_dir_filtered(dir: &Path, skip: Option<&str>) -> Self {
         let dir = dir.to_path_buf();
         let mut m = Self::default();
         if !dir.is_dir() {
@@ -74,6 +83,9 @@ impl Mods {
         packs.sort_by_key(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
         for p in packs {
             let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if skip.is_some_and(|s| s.eq_ignore_ascii_case(&name)) {
+                continue;
+            }
             m.scan(&p, &name);
         }
         m

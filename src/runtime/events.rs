@@ -153,6 +153,9 @@ fn mb_bits(m: &super::Mask, row: usize, col: usize, n: usize) -> u64 {
 #[derive(Debug, Clone, Default)]
 pub struct EventState {
     pub last_true_tick: Option<u64>,
+    /// How many times the actions ran, and the tick they last did (debug panels, tests).
+    pub fired: u32,
+    pub last_fired: Option<u64>,
     pub once_fired: bool,
     pub repeat_count: u32,
     pub restrict_until: f64,
@@ -635,6 +638,11 @@ impl Runtime {
             }
         }
 
+        {
+            let st = self.event_state.entry(gi).or_default();
+            st.fired += 1;
+            st.last_fired = Some(tick);
+        }
         for a in &group.actions {
             self.exec_action(a, &mut sel, input);
             if self.pending.is_some() {

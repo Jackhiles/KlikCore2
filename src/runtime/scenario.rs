@@ -16,6 +16,9 @@
 //! set "door" @2 x 300        # only the 2nd instance named "door"
 //! global 3 10                # set global value 3 to 10
 //! expect_global 3 >= 10      # check a global value
+//! expect_fired 589           # event 589 of the current frame fired (its actions ran)
+//! dump_events 60             # debug: log events fired in the last 60 ticks
+//! dump_globals               # debug: log global values / strings in use
 //! expect_frame prologue      # current frame, by name or index
 //! expect "door" value 0 = 1  # an object's state: counter | value N | x | y | visible, with = != < > <= >=
 //! expect "door" @2 x > 100   # only the 2nd instance named "door"
@@ -290,6 +293,27 @@ pub fn run_scenario(path: &Path) -> Result<ScenarioResult> {
                         let [n, v] = w[..] else { bail!(at("global: needs an index and a value")) };
                         let value = if v.fract() == 0.0 { Value::Int(v as i32) } else { Value::Float(v) };
                         d.rt.set_global_value(n.max(0.0) as usize, value);
+                    }
+                    "expect_fired" => {
+                        let gi = rest.trim().trim_start_matches('#').parse::<usize>().map_err(|_| anyhow::anyhow!(at("expect_fired: needs an event number")))?;
+                        if d.rt.times_fired(gi) == 0 {
+                            result.failures.push(at(&format!("event #{gi} never fired")));
+                        }
+                    }
+                    "dump_events" => {
+                        let ticks = rest.trim().parse::<u64>().unwrap_or(60);
+                        for (gi, n, t) in d.rt.recent_events(ticks) {
+                            result.log.push(format!("tick {}: event #{gi} fired {n}x (last at tick {t}): {}", d.tick, d.rt.event_summary(gi)));
+                        }
+                    }
+                    "dump_globals" => {
+                        let (values, strings) = d.rt.globals_in_use();
+                        for (i, v) in values {
+                            result.log.push(format!("tick {}: global value {i} = {v}", d.tick));
+                        }
+                        for (i, s) in strings {
+                            result.log.push(format!("tick {}: global string {i} = {s:?}", d.tick));
+                        }
                     }
                     "expect_global" => {
                         let w: Vec<&str> = rest.split_whitespace().collect();

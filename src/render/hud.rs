@@ -1,6 +1,8 @@
 //! The in-game overlay (F1): off, a compact status pill, or full panels with the game's
 //! state, performance, view settings, unsupported features and the key list. F4 adds an
-//! inspector for the object under the mouse.
+//! inspector for the object under the mouse, Ctrl+G the variables (global values and
+//! strings, counters), Ctrl+E the events that fired in the last second. While Ctrl+R
+//! records, a REC marker shows.
 
 use super::Viewer;
 use macroquad::prelude::*;
@@ -112,6 +114,75 @@ impl Viewer {
         if self.inspector {
             self.draw_inspector();
         }
+        let col = 330.0;
+        let x = screen_width() - col - 8.0;
+        let mut y = 8.0;
+        if self.show_vars {
+            y += self.draw_vars(x, y, col) + 8.0;
+        }
+        if self.show_events {
+            self.draw_events(x, y, col);
+        }
+        if self.recorder.is_some() {
+            let blink = (get_time() * 2.0) as i64 % 2 == 0;
+            self.hud_panel(screen_width() / 2.0 - 34.0, 8.0, 68.0, 26.0);
+            draw_circle(screen_width() / 2.0 - 18.0, 21.0, 5.0, if blink { BAD } else { Color::new(0.5, 0.1, 0.1, 1.0) });
+            self.hud_text("REC", screen_width() / 2.0 - 8.0, 26.0, 15, TEXT);
+        }
+    }
+
+    /// Ctrl+G: global values / strings in use and every counter, score and lives object.
+    fn draw_vars(&self, x: f32, y: f32, w: f32) -> f32 {
+        use crate::ctf_loader::ObjectKind;
+        let max_chars = 34;
+        let cut = |t: &str| if t.chars().count() > max_chars { format!("{}...", t.chars().take(max_chars).collect::<String>()) } else { t.to_string() };
+        let (values, strings) = self.rt.globals_in_use();
+        let mut lines: Vec<Line> = Vec::new();
+        for (i, v) in values.iter().take(14) {
+            lines.push(line(&[(&format!("value {i}  "), MUTED), (&cut(&v.to_string()), TEXT)]));
+        }
+        if values.len() > 14 {
+            lines.push(line(&[(&format!("... {} more values", values.len() - 14), MUTED)]));
+        }
+        for (i, t) in strings.iter().take(6) {
+            lines.push(line(&[(&format!("string {i}  "), MUTED), (&cut(&format!("{t:?}")), TEXT)]));
+        }
+        let mut counters = 0;
+        for inst in self.rt.instances.iter().filter(|i| !i.destroyed && matches!(i.kind, ObjectKind::Counter | ObjectKind::Score | ObjectKind::Lives)) {
+            counters += 1;
+            if counters > 12 {
+                continue;
+            }
+            let name = self.rt.game.object(inst.oi).map_or("?", |o| o.name.as_str());
+            lines.push(line(&[(&cut(name), MUTED), ("  ", MUTED), (&inst.counter.to_string(), ACCENT)]));
+        }
+        if counters > 12 {
+            lines.push(line(&[(&format!("... {} more counters", counters - 12), MUTED)]));
+        }
+        if lines.is_empty() {
+            lines.push(line(&[("no globals or counters in use", MUTED)]));
+        }
+        self.hud_card(x, y, w, "VARIABLES (Ctrl+G)", &lines)
+    }
+
+    /// Ctrl+E: events whose actions ran in the last second, most recent first.
+    fn draw_events(&self, x: f32, y: f32, w: f32) -> f32 {
+        let recent = self.rt.recent_events(60);
+        let now = self.rt.tick;
+        let mut lines: Vec<Line> = Vec::new();
+        for (gi, n, t) in recent.iter().take(18) {
+            let summary = self.rt.event_summary(*gi);
+            let summary: String = summary.chars().take(30).collect();
+            let fresh = *t == now || *t + 1 == now;
+            lines.push(line(&[(&format!("#{gi:<4}"), if fresh { GOOD } else { MUTED }), (&format!(" x{n:<5} "), MUTED), (&summary, TEXT)]));
+        }
+        if recent.len() > 18 {
+            lines.push(line(&[(&format!("... {} more", recent.len() - 18), MUTED)]));
+        }
+        if lines.is_empty() {
+            lines.push(line(&[("no events fired in the last second", MUTED)]));
+        }
+        self.hud_card(x, y, w, &format!("EVENTS FIRED (Ctrl+E)  frame {}", self.rt.frame_index), &lines)
     }
 
     fn state_label(&self) -> (String, Color) {
@@ -236,7 +307,7 @@ impl Viewer {
         drop(un);
 
         // Keys, along the bottom.
-        let keys: [(&str, &str); 14] = [
+        let keys: [(&str, &str); 18] = [
             ("F1", "overlay"),
             ("F2", "pause"),
             ("F3", "step"),
@@ -251,6 +322,10 @@ impl Viewer {
             ("Ctrl F12", "screenshot"),
             ("Ctrl -/=", "speed"),
             ("Ctrl M", "mute"),
+            ("Ctrl U", "AI pack"),
+            ("Ctrl G", "variables"),
+            ("Ctrl E", "events"),
+            ("Ctrl R", "record"),
         ];
         let more: [(&str, &str); 3] = [("Ctrl PgUp/PgDn", "frame"), ("Ctrl 1-0", "layer"), ("Ctrl Q", "quit")];
         let sw = screen_width();
