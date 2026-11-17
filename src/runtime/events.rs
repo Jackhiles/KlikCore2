@@ -1956,6 +1956,9 @@ impl Runtime {
                 self.instances[idx].layer = l.min(max);
             }
             // Set effect by name: Fusion's built-in effects; shader files (.fx) aren't run.
+            // Older games use 63 without parameters (on an enemy whose health ran out);
+            // what it did there is unknown, so it does nothing, as before set-effect support.
+            (_, 63) if a.params.is_empty() => {}
             (_, 63) => {
                 let name = self.eval_param(a, 0, sel, cur).as_string();
                 let effect = match name.trim().to_ascii_lowercase().as_str() {
