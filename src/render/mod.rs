@@ -1101,6 +1101,9 @@ impl Viewer {
             self.settings.touch_controls = mode;
             self.settings.save();
         }
+        // Clicks new this display frame (`clicked` stays set until a game tick takes it,
+        // which can be several frames on a fast screen).
+        let mut fresh = [false; 3];
         for (i, b) in [MouseButton::Left, MouseButton::Middle, MouseButton::Right]
             .into_iter()
             .enumerate()
@@ -1110,6 +1113,7 @@ impl Viewer {
             }
             if is_mouse_button_pressed(b) {
                 self.input.clicked[i] = true;
+                fresh[i] = true;
             }
             if is_mouse_button_down(b) {
                 self.input.down.insert([1u16, 4, 2][i]);
@@ -1124,6 +1128,7 @@ impl Viewer {
                     self.input.down.insert(1);
                 }
                 self.input.clicked[0] |= clicked;
+                fresh[0] |= clicked;
                 p
             }
             None => Vec2::from(mouse_position()),
@@ -1133,7 +1138,7 @@ impl Viewer {
         // event on the second would undo before the "double-click" event uses them.
         let now = get_time();
         for b in 0..3 {
-            if self.input.clicked[b] && self.double_clicks.click(b, now, (pointer.x, pointer.y)) {
+            if fresh[b] && self.double_clicks.click(b, now, (pointer.x, pointer.y)) {
                 self.input.double_clicked[b] = true;
                 self.input.clicked[b] = false;
             }

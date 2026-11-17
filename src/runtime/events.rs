@@ -219,6 +219,18 @@ impl Runtime {
             if coi == oi || self.instances.get(idx).is_some_and(|i| i.oi == oi) {
                 return Some(idx);
             }
+            // An action running for the k-th selected instance of its object, reading
+            // another object the event selected several of, reads that object's k-th
+            // instance (wrapping), as Fusion does: e.g. "box overlaps label: set label to
+            // box's value" gives each label its own box's value, not the first box's.
+            if let (Some(others), Some(mine)) = (sel.get(&oi), sel.get(&coi)) {
+                let others: Vec<usize> = others.iter().copied().filter(|&i| !self.instances[i].destroyed).collect();
+                if others.len() > 1 {
+                    if let Some(k) = mine.iter().copied().filter(|&i| !self.instances[i].destroyed).position(|i| i == idx) {
+                        return Some(others[k % others.len()]);
+                    }
+                }
+            }
         }
         self.candidates(oi, sel).first().copied()
     }
