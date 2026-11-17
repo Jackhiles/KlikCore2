@@ -84,7 +84,7 @@ pub struct SoundBank {
 }
 
 impl SoundBank {
-    /// Multimedia Fusion 1.5 sound bank: each entry is `handle u32` plus a 1.5-compressed
+    /// Multimedia Fusion 1.5 sound (and music) bank: each entry is `handle u32` plus a 1.5-compressed
     /// block of `checksum u16, references u32, size u32, flags u32, reserved u32,
     /// name_len u32, name, WAVEFORMAT (format u16, channels u16, rate u32, byte rate u32,
     /// block align u16, bits u16), u16, data_size u32, PCM data`. Rebuilt as WAV files.
@@ -107,6 +107,21 @@ impl SoundBank {
             let name = super::reader::decode_cstr(s.read_bytes(name_len)?, false)
                 .trim()
                 .to_string();
+            // The music bank has the same entries holding a whole MIDI file instead.
+            if s.remaining() >= 4 && raw[s.pos()..].starts_with(b"MThd") {
+                let midi = s.rest().to_vec();
+                sounds.push(SoundEntry {
+                    handle,
+                    name,
+                    flags,
+                    format: AudioFormat::Midi,
+                    decompressed_size: midi.len() as u32,
+                    name_bytes: 0,
+                    compressed: false,
+                    payload: Blob::new(midi),
+                });
+                continue;
+            }
             let fmt = s.read_bytes(16)?.to_vec();
             let _unknown = s.read_u16()?;
             let data_len = s.read_u32()? as usize;
