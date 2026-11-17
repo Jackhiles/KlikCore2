@@ -253,6 +253,12 @@ fn unzip(b: &[u8], wanted: &dyn Fn(&str) -> bool) -> Result<Vec<(String, Vec<u8>
     Ok(out)
 }
 
+/// Every file of a zip (tests of the launcher's report zips).
+#[cfg(test)]
+pub(crate) fn unzip_for_tests(b: &[u8]) -> Vec<(String, Vec<u8>)> {
+    unzip(b, &|_| true).unwrap_or_default()
+}
+
 /// Fill fully transparent pixels with the colours of their opaque neighbours (a few rings
 /// deep, then the image's average), so the AI doesn't draw dark fringes along edges.
 fn bleed(img: &RgbaImage) -> Vec<[u8; 3]> {

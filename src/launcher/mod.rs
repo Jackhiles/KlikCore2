@@ -9,6 +9,8 @@ pub mod steam_shortcuts;
 mod art;
 pub mod update;
 pub mod upscale;
+mod extras;
+mod meta;
 mod pages;
 mod view;
 use view::Menu;
@@ -106,9 +108,13 @@ pub(crate) fn ui_scale() -> f32 {
     } else {
         1.0
     };
-    // The "Interface size" setting (percent; 100 = automatic).
-    base * UI_SIZE.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0
+    // The "Interface size" setting (percent; 100 = automatic), and TV mode on top.
+    let tv = if TV_MODE.load(std::sync::atomic::Ordering::Relaxed) { 1.6 } else { 1.0 };
+    base * UI_SIZE.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0 * tv
 }
+
+/// TV mode is on (big interface, fullscreen; for a TV or the Steam Deck's Gaming Mode).
+static TV_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The launcher's "Interface size" setting, in percent.
 static UI_SIZE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
@@ -185,6 +191,23 @@ struct LauncherConfig {
     update_check: bool,
     /// Interface size in percent (one of `UI_SIZES`).
     ui_size: u32,
+    /// Library order: 0 recently played, 1 name, 2 most played.
+    sort: u8,
+    /// Library filter: "" all, "fav", "steam", or "c:<collection>".
+    filter: String,
+    /// The version whose "what's new" was shown.
+    last_seen_version: String,
+    /// TV mode: 0 off, 1 on, 2 in Steam's Gaming Mode.
+    tv: u8,
+    /// The tests page's folder (default: Ctrl+R recordings).
+    tests_dir: Option<PathBuf>,
+}
+
+impl LauncherConfig {
+    /// TV mode applies now.
+    fn tv_active(&self) -> bool {
+        self.tv == 1 || (self.tv == 2 && steam_shortcuts::in_gaming_mode())
+    }
 }
 
 impl LauncherConfig {
@@ -200,6 +223,11 @@ impl LauncherConfig {
             discord: true,
             update_check: true,
             ui_size: 100,
+            sort: 0,
+            filter: String::new(),
+            last_seen_version: String::new(),
+            tv: 2,
+            tests_dir: None,
         };
         if let Ok(text) = std::fs::read_to_string(Self::file()) {
             for line in text.lines() {
@@ -210,24 +238,36 @@ impl LauncherConfig {
                     Some(("discord", v)) => c.discord = v.trim() != "off",
                     Some(("update_check", v)) => c.update_check = v.trim() != "off",
                     Some(("ui_size", v)) => c.ui_size = v.trim().parse::<u32>().ok().filter(|s| UI_SIZES.contains(s)).unwrap_or(100),
+                    Some(("sort", v)) => c.sort = v.trim().parse::<u8>().unwrap_or(0).min(2),
+                    Some(("filter", v)) => c.filter = v.trim().to_string(),
+                    Some(("last_seen_version", v)) => c.last_seen_version = v.trim().to_string(),
+                    Some(("tv_mode", v)) => c.tv = v.trim().parse::<u8>().unwrap_or(2).min(2),
+                    Some(("tests_dir", v)) if !v.trim().is_empty() => c.tests_dir = Some(PathBuf::from(v.trim())),
                     _ => {}
                 }
             }
         }
         UI_SIZE.store(c.ui_size, std::sync::atomic::Ordering::Relaxed);
+        TV_MODE.store(c.tv_active(), std::sync::atomic::Ordering::Relaxed);
         c
     }
 
     fn save(&self) {
         let text = format!(
-            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\ndiscord={}\nupdate_check={}\nui_size={}\n",
+            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\ndiscord={}\nupdate_check={}\nui_size={}\nsort={}\nfilter={}\nlast_seen_version={}\ntv_mode={}\ntests_dir={}\n",
             if self.steam_copy { "copy" } else { "link" },
             self.storage.display(),
             if self.steam_self_never { "never" } else { "ask" },
             if self.discord { "on" } else { "off" },
             if self.update_check { "on" } else { "off" },
-            self.ui_size
+            self.ui_size,
+            self.sort,
+            self.filter,
+            self.last_seen_version,
+            self.tv,
+            self.tests_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default()
         );
+        TV_MODE.store(self.tv_active(), std::sync::atomic::Ordering::Relaxed);
         UI_SIZE.store(self.ui_size, std::sync::atomic::Ordering::Relaxed);
         let _ = std::fs::create_dir_all(library::data_dir());
         let _ = std::fs::write(Self::file(), text);
@@ -250,6 +290,12 @@ enum Msg {
     UpdateInstalled(Result<PathBuf, String>),
     /// Cover / hero images decoded by the art worker.
     Art(covers::Art),
+    /// A compatibility check finished (None: it couldn't run).
+    Compat(PathBuf, Option<meta::Compat>),
+    /// This version's release notes, to show once.
+    WhatsNew(String),
+    /// A scenario ran: passed, output.
+    TestResult(PathBuf, bool, String),
 }
 
 struct Launcher {
@@ -340,6 +386,20 @@ struct Launcher {
     sync_running: Vec<String>,
     sync_started: bool,
     /// Android: the game to run in this window (there are no separate processes).
+    /// Favourites, collections, compatibility results.
+    meta: meta::Meta,
+    /// One of the extra pages (collections, screenshots, report, what's new, tests).
+    extra: Option<extras::Extra>,
+    /// The "new collection" field.
+    collection_input: Option<String>,
+    /// Games whose compatibility check is running.
+    checking: std::collections::HashSet<PathBuf>,
+    tests: extras::Tests,
+    /// Screenshot thumbnails, and one waiting for "Delete" to be clicked again.
+    shot_textures: HashMap<PathBuf, Option<Texture2D>>,
+    shot_delete: Option<PathBuf>,
+    /// A snapshot waiting for "Restore" to be clicked again.
+    snapshot_confirm: Option<PathBuf>,
     #[cfg(target_os = "android")]
     play_request: Option<PathBuf>,
     /// Android: when to next ask whether a home-screen shortcut requested a game.
@@ -413,6 +473,14 @@ impl Launcher {
             drag_scroll: 0.0,
             sync_running: Vec::new(),
             sync_started: false,
+            meta: meta::Meta::load(),
+            extra: None,
+            collection_input: None,
+            checking: Default::default(),
+            tests: Default::default(),
+            shot_textures: HashMap::new(),
+            shot_delete: None,
+            snapshot_confirm: None,
             #[cfg(target_os = "android")]
             play_request: None,
             #[cfg(target_os = "android")]
@@ -704,6 +772,27 @@ impl Launcher {
                     }
                 }
                 Msg::Status(s) => self.busy = Some(s),
+                Msg::Compat(path, c) => {
+                    self.checking.remove(&path);
+                    let title = self.entries.iter().find(|e| e.path == path).map(|e| e.title.clone()).unwrap_or_default();
+                    match c {
+                        Some(c) => {
+                            let msg = if c.unsupported == 0 { format!("{title}: every screen ran with nothing unsupported.") } else { format!("{title}: {} unsupported feature{}.", c.unsupported, if c.unsupported == 1 { "" } else { "s" }) };
+                            self.meta.set_compat(&path, c);
+                            self.say(msg);
+                        }
+                        None => self.say(format!("Couldn't check {title} (it didn't load).")),
+                    }
+                }
+                Msg::WhatsNew(notes) => {
+                    if self.library_view() {
+                        self.open_extra(extras::Extra::WhatsNew(notes));
+                    }
+                }
+                Msg::TestResult(f, ok, text) => {
+                    self.tests.running.remove(&f);
+                    self.tests.results.insert(f, (ok, text));
+                }
                 Msg::UpscaleProgress(s, f) => {
                     self.busy = Some(s);
                     if let Some(f) = f {
@@ -802,6 +891,8 @@ impl Launcher {
             self.draw_devices_page(top);
         } else if self.app_settings.is_some() {
             self.draw_app_settings(top);
+        } else if self.extra.is_some() {
+            self.draw_extra(top);
         } else {
             self.draw_library(sw, sh, pad_action);
         }
@@ -938,12 +1029,16 @@ impl Launcher {
 pub async fn run() {
     let mut l = Launcher::new();
     l.start_update_check();
+    l.check_whats_new();
+    if l.config.tv_active() {
+        set_fullscreen(true);
+    }
     l.check_steam_shortcut();
     #[cfg(target_os = "android")]
     l.scan_game_folders();
     // Testing: KLIKCORE_LAUNCHER_SHOT=<file.png> saves the window once artwork has loaded
     // (or after 20 s), then exits. KLIKCORE_LAUNCHER_SELECT=<n> selects the n-th game,
-    // KLIKCORE_LAUNCHER_PAGE=settings|steam|log|devices|app opens that page.
+    // KLIKCORE_LAUNCHER_PAGE=settings|steam|log|devices|app|tests|screenshots|report|collections|whatsnew opens that page.
     let shot = std::env::var_os("KLIKCORE_LAUNCHER_SHOT").map(PathBuf::from);
     if let Some(n) = std::env::var("KLIKCORE_LAUNCHER_SELECT").ok().and_then(|v| v.parse::<usize>().ok()) {
         l.selected = Some(n);
@@ -954,7 +1049,21 @@ pub async fn run() {
         Ok("log") => l.show_log = true,
         Ok("devices") => l.devices_page = true,
         Ok("app") => l.app_settings = Some(Settings::defaults()),
+        Ok("tests") => {
+            l.open_extra(extras::Extra::Tests);
+            if std::env::var_os("KLIKCORE_LAUNCHER_RUN_TESTS").is_some() {
+                l.run_all_tests();
+            }
+        }
+        Ok("screenshots") => l.open_extra(extras::Extra::Screenshots(l.selected.unwrap_or(0))),
+        Ok("report") => l.open_extra(extras::Extra::Report(l.selected.unwrap_or(0))),
+        Ok("collections") => l.open_extra(extras::Extra::Collections(l.selected.unwrap_or(0))),
+        Ok("whatsnew") => l.open_extra(extras::Extra::WhatsNew(std::env::var("KLIKCORE_WHATS_NEW_TEXT").unwrap_or_default().replace("\\n", "\n"))),
         _ => {}
+    }
+    // Testing: KLIKCORE_LAUNCHER_SCROLL=<pixels> scrolls the page that opened.
+    if let Some(y) = std::env::var("KLIKCORE_LAUNCHER_SCROLL").ok().and_then(|v| v.parse::<f32>().ok()) {
+        l.scroll = y;
     }
     let started = get_time();
     loop {

@@ -106,7 +106,22 @@ games (also `klikcore --add FILE_OR_FOLDER`) or Steam games; the **...** menu ha
 folder. A game's own **...** menu has Add to Steam, Desktop shortcut (also `klikcore GAME --shortcut`), Mods folder,
 Open game folder and Remove from library (the files are untouched). Double-click a cover to play. When a game runs another program (launchers that start the real game), a Clickteam game opens in a new KlikCore window; on Windows other programs start as they would with the original runtime. Only one copy
 of a game runs at a time, and while a game started from the launcher is running, the launcher ignores the controller.
-`KLIKCORE_LAUNCHER_SHOT=file.png` saves the launcher window once artwork has loaded and exits (for testing; `KLIKCORE_LAUNCHER_PAGE=settings|steam|log|devices|app` opens a page first).
+`KLIKCORE_LAUNCHER_SHOT=file.png` saves the launcher window once artwork has loaded and exits (for testing; `KLIKCORE_LAUNCHER_PAGE=settings|steam|log|devices|app|tests|screenshots|report|collections|whatsnew` opens a page first, `KLIKCORE_LAUNCHER_SELECT=N` selects a game, `KLIKCORE_LAUNCHER_SCROLL=PX` scrolls the page, `KLIKCORE_LAUNCHER_RUN_TESTS=1` runs the tests page's scenarios).
+
+**Library tools.** Chips above the covers sort the library (recently played, name, most played) and filter it
+(favourites, Steam games, or one of your collections); favourites always come first. Star a game on its cover or in its
+menu; *Collections...* puts it into collections of your own. *Check compatibility* (or **Check** beside a game) runs
+every frame of the game for a few seconds in a separate KlikCore process and marks the cover **Runs** or **Partial: N**
+with what isn't supported. *Screenshots* shows the game's in-game screenshots (Ctrl+F12; new ones are listed in
+`screenshots\index.tsv`). *Report a problem* saves a zip (`<data dir>\reports\`) with the game's log, its
+compatibility result, its newest screenshot and Ctrl+R recording, and KlikCore's version and OS (no personal details),
+and can open a pre-filled GitHub issue to attach it to. Favourites, collections and results are kept in
+`game-info.tsv`. A game's settings page lists **snapshots** of its saves: *Take snapshot* copies KlikCore's saves, and
+*Restore* puts any snapshot or save-manager backup back (the current saves are snapshotted first). The play log page
+starts with **stats**: total time, the most played games and the last 30 days. After an update, **What's new** shows
+the release notes once. **TV mode** (Settings: Off / On / Auto, which is on in Steam's Gaming Mode) shows everything
+larger and fullscreen. **Tests** (in the ... menu) lists the scenarios in a folder (default: your Ctrl+R recordings),
+runs one or all in the background and shows pass / fail and their output.
 
 **Steam** (shown when Steam is installed; also `klikcore GAME --add-to-steam`) adds the game to Steam as a non-Steam
 shortcut that starts it with KlikCore, with the game's icon. If the game is or was a Steam game (installed through

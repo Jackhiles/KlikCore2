@@ -87,13 +87,13 @@ impl Launcher {
     }
 
     /// Width a segmented switch needs.
-    fn segmented_width(&self, options: &[&str]) -> f32 {
+    pub(super) fn segmented_width(&self, options: &[&str]) -> f32 {
         options.iter().map(|o| self.bold_width(o, 15) + 28.0).sum::<f32>() + 8.0
     }
 
     /// One setting inside a card: label and hint on the left, a switch on the right (or
     /// under the text when the window is narrow). Returns the option clicked.
-    fn setting(&self, p: &mut Page, first: bool, label: &str, hint: &str, options: &[&str], selected: usize) -> Option<usize> {
+    pub(super) fn setting(&self, p: &mut Page, first: bool, label: &str, hint: &str, options: &[&str], selected: usize) -> Option<usize> {
         let sw = self.segmented_width(options);
         let inner = p.w - 2.0 * CARD_PAD;
         let stacked = sw + 220.0 > inner;
@@ -124,7 +124,7 @@ impl Launcher {
 
     /// A card of settings rows under a section title; returns the row clicked and the
     /// option chosen. Rows are (label, hint, options, selected).
-    fn settings_card(&self, p: &mut Page, title: &str, rows: &[(&str, &str, &[&str], usize)]) -> Option<(usize, usize)> {
+    pub(super) fn settings_card(&self, p: &mut Page, title: &str, rows: &[(&str, &str, &[&str], usize)]) -> Option<(usize, usize)> {
         self.section_title(p, title);
         let opts: Vec<&[&str]> = rows.iter().map(|r| r.2).collect();
         let h = self.card_h(p, &opts);
@@ -224,6 +224,8 @@ impl Launcher {
 
         self.section_title(&mut p, "SAVES");
         self.saves_card(i, &mut p);
+        p.y += 12.0;
+        self.snapshots_card(i, &mut p);
         self.page_scroll(top, p.y);
         if close {
             self.settings_panel = None;
@@ -247,6 +249,8 @@ impl Launcher {
         if discord_row.is_some() {
             rows.push(("Discord status", "Show the game you're playing in Discord", &["Off", "On"], self.config.discord as usize));
         }
+        let tv_row = rows.len();
+        rows.push(("TV mode", "Big interface, fullscreen (Auto: in Steam's Gaming Mode)", &["Off", "On", "Auto"], self.config.tv as usize));
         let steam_row = (!android).then(|| rows.len());
         if steam_row.is_some() {
             rows.push(("Offer to add KlikCore to Steam", "Ask when Steam has no shortcut for KlikCore", &["Never", "Ask"], (!self.config.steam_self_never) as usize));
@@ -256,6 +260,10 @@ impl Launcher {
             match row {
                 0 => self.config.update_check = on,
                 1 => self.config.ui_size = UI_SIZES[k],
+                r if r == tv_row => {
+                    self.config.tv = k as u8;
+                    set_fullscreen(self.config.tv == 1 || (self.config.tv == 2 && super::steam_shortcuts::in_gaming_mode()));
+                }
                 r if Some(r) == discord_row => self.config.discord = on,
                 r if Some(r) == steam_row => self.config.steam_self_never = !on,
                 _ => {}
@@ -440,6 +448,7 @@ impl Launcher {
             playlog::duration(total)
         );
         let (mut p, close) = self.page_start(top, "Play log", &subtitle);
+        self.stats_card(&mut p);
         if self.sessions.is_empty() {
             rrect(p.x, p.y, p.w, 80.0, 12.0, CARD);
             self.text("Nothing yet: play a game and its session shows up here.", p.x + CARD_PAD, p.y + 46.0, 16, MUTED);

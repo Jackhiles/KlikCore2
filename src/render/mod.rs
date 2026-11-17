@@ -1058,6 +1058,13 @@ impl Viewer {
         let stem = if stem.trim().is_empty() { "game".to_string() } else { stem.trim().to_string() };
         let path = dir.join(format!("{stem} {}.png", chrono::Local::now().format("%Y-%m-%d %H-%M-%S")));
         get_screen_data().export_png(&path.to_string_lossy());
+        // Which game it belongs to, for the launcher's screenshots page.
+        let game = self.rt.game.path.clone();
+        let game = std::path::absolute(&game).unwrap_or(game);
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("index.tsv")) {
+            use std::io::Write as _;
+            let _ = writeln!(f, "{}\t{}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), game.display());
+        }
         self.log.line(&format!("screenshot {}", path.display()));
         self.notice = Some((format!("Screenshot saved to {}", path.display()), get_time() + 3.0));
     }

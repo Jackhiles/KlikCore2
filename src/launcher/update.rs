@@ -111,6 +111,14 @@ pub fn download(_url: &str, _to: &Path) -> Result<(), String> {
 }
 
 /// The latest release, if it is newer than this build and has a file for this platform.
+/// The release notes of version `version` (for "what's new" after an update).
+pub fn release_notes(version: &str) -> Result<String, String> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/v{version}");
+    let body = fetch(&url, "application/vnd.github+json")?;
+    let json: serde_json::Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+    Ok(json["body"].as_str().unwrap_or_default().to_string())
+}
+
 pub fn check() -> Result<Option<Release>, String> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
     let body = fetch(&url, "application/vnd.github+json")?;

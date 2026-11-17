@@ -191,9 +191,123 @@ pub fn copy(fs: &SaveFs, dir: Direction) -> Report {
     report
 }
 
+/// A backup folder (`backups\<time>\`): what the save manager replaced, or a snapshot.
+#[derive(Debug, Clone)]
+pub struct Snapshot {
+    /// "YYYY-MM-DD HH-MM-SS" (its folder name).
+    pub stamp: String,
+    pub dir: PathBuf,
+    /// Files backed up from KlikCore's saves and from the original game's.
+    pub klikcore_files: usize,
+    pub original_files: usize,
+}
+
+fn count_files(dir: &Path) -> usize {
+    let mut v = Vec::new();
+    walk(dir, &mut v);
+    v.len()
+}
+
+/// Every backup and snapshot of a game's saves, newest first.
+pub fn snapshots(fs: &SaveFs) -> Vec<Snapshot> {
+    let root = fs.save_root.join("backups");
+    let mut v: Vec<Snapshot> = std::fs::read_dir(&root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| {
+            let dir = e.path();
+            Snapshot {
+                stamp: e.file_name().to_string_lossy().into_owned(),
+                klikcore_files: count_files(&dir.join("klikcore")),
+                original_files: count_files(&dir.join("original")),
+                dir,
+            }
+        })
+        .filter(|s| s.klikcore_files + s.original_files > 0)
+        .collect();
+    // Newest first by date ("sync-" backups are made before a device sync).
+    v.sort_by(|a, b| b.stamp.trim_start_matches("sync-").cmp(a.stamp.trim_start_matches("sync-")));
+    v
+}
+
+/// Copy KlikCore's saves for this game into a new backup folder. Returns it, or None when
+/// there is nothing to save yet.
+pub fn take_snapshot(fs: &SaveFs) -> std::io::Result<Option<PathBuf>> {
+    let mut files = Vec::new();
+    for area in ["app", "appdata", "other"] {
+        walk(&fs.save_root.join(area), &mut files);
+    }
+    if files.is_empty() {
+        return Ok(None);
+    }
+    let mut stamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S").to_string();
+    while fs.save_root.join("backups").join(&stamp).exists() {
+        stamp.push('+');
+    }
+    let dir = fs.save_root.join("backups").join(&stamp);
+    for f in files {
+        let rel = f.strip_prefix(&fs.save_root).unwrap_or(&f);
+        let to = dir.join("klikcore").join(rel);
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&f, &to)?;
+    }
+    Ok(Some(dir))
+}
+
+/// Put a backup's files back: KlikCore's into its save folder, the original game's where
+/// the game keeps them. The current saves are snapshotted first, so this can be undone.
+pub fn restore(fs: &SaveFs, snapshot: &Path) -> Report {
+    let mut report = Report::default();
+    match take_snapshot(fs) {
+        Ok(b) => report.backup = b,
+        Err(e) => {
+            report.errors.push(format!("snapshot before restoring: {e}"));
+            return report;
+        }
+    }
+    for side in ["klikcore", "original"] {
+        let base = snapshot.join(side);
+        let mut files = Vec::new();
+        walk(&base, &mut files);
+        for f in files {
+            let rel = f.strip_prefix(&base).unwrap_or(&f);
+            let in_saves = fs.save_root.join(rel);
+            let to = if side == "klikcore" { Some(in_saves) } else { fs.original_of(&in_saves) };
+            let Some(to) = to else { continue };
+            let done = to.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::copy(&f, &to).map(|_| ()));
+            match done {
+                Ok(()) => report.copied += 1,
+                Err(e) => report.errors.push(format!("{}: {e}", to.display())),
+            }
+        }
+    }
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_and_restore() {
+        let root = tmp("snapshots");
+        let fs = SaveFs::new(&root.join("game").join("game.exe"), root.join("saves"));
+        let save = root.join("saves").join("appdata").join("g").join("save.ini");
+        std::fs::create_dir_all(save.parent().unwrap()).unwrap();
+        std::fs::write(&save, "level=3").unwrap();
+        let snap = take_snapshot(&fs).unwrap().expect("a snapshot");
+        std::fs::write(&save, "level=9").unwrap();
+        assert_eq!(snapshots(&fs).len(), 1);
+        let r = restore(&fs, &snap);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert_eq!(std::fs::read_to_string(&save).unwrap(), "level=3");
+        // Restoring snapshotted "level=9" first.
+        assert_eq!(snapshots(&fs).len(), 2);
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("klikcore-savesync-{name}-{}", std::process::id()));

@@ -427,6 +427,7 @@ impl Launcher {
         self.steam_panel = false;
         self.settings_panel = None;
         self.app_settings = None;
+        self.extra = None;
         self.show_log = false;
         self.scroll = 0.0;
         self.games_from_menu = true;

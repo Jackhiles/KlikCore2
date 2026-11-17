@@ -20,6 +20,12 @@ pub(super) enum MenuAction {
     RefreshArt(usize),
     Upscale(usize, super::upscale::Style),
     AppSettings,
+    Favourite(usize),
+    Collections(usize),
+    CheckCompat(usize),
+    Screenshots(usize),
+    Report(usize),
+    Tests,
     RemoveUpscale(usize),
     RepairUpscale(usize),
     Remove(usize),
@@ -43,6 +49,22 @@ const GAP: f32 = 18.0;
 const MIN_CARD_W: f32 = if cfg!(target_os = "android") { 128.0 } else { 150.0 };
 const MAX_CARD_W: f32 = 220.0;
 const TITLE_SPACE: f32 = 46.0;
+/// The sort / filter chips above the cover grid.
+const TOOLBAR_H: f32 = 46.0;
+const WARN: Color = Color::new(0.96, 0.73, 0.30, 1.0);
+
+/// A five-pointed star (favourites).
+fn draw_star(cx: f32, cy: f32, r: f32, c: Color) {
+    let pt = |k: usize, rad: f32| {
+        let a = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::PI / 5.0;
+        vec2(cx + rad * a.cos(), cy + rad * a.sin())
+    };
+    let centre = vec2(cx, cy);
+    for k in 0..10 {
+        let (r1, r2) = if k % 2 == 0 { (r, r * 0.42) } else { (r * 0.42, r) };
+        draw_triangle(centre, pt(k, r1), pt(k + 1, r2), c);
+    }
+}
 
 /// A filled rectangle with rounded corners (opaque colours only: the parts overlap).
 pub(super) fn rrect(x: f32, y: f32, w: f32, h: f32, r: f32, c: Color) {
@@ -75,7 +97,72 @@ impl Launcher {
     /// Indices of the games matching the search, in library order.
     pub(super) fn visible(&self) -> Vec<usize> {
         let q = self.search.trim().to_lowercase();
-        (0..self.entries.len()).filter(|&i| q.is_empty() || self.entries[i].title.to_lowercase().contains(&q)).collect()
+        let f = self.config.filter.as_str();
+        let mut v: Vec<usize> = (0..self.entries.len())
+            .filter(|&i| q.is_empty() || self.entries[i].title.to_lowercase().contains(&q))
+            .filter(|&i| {
+                let p = &self.entries[i].path;
+                match f {
+                    "" => true,
+                    "fav" => self.meta.is_favourite(p),
+                    "steam" => p.to_string_lossy().to_lowercase().contains("steamapps"),
+                    c => c.strip_prefix("c:").is_some_and(|c| self.meta.in_collection(p, c)),
+                }
+            })
+            .collect();
+        // Favourites first, then the chosen order.
+        let played = |i: usize| self.totals.get(&self.entries[i].path.to_string_lossy().to_lowercase()).cloned();
+        v.sort_by(|&a, &b| {
+            let fav = self.meta.is_favourite(&self.entries[b].path).cmp(&self.meta.is_favourite(&self.entries[a].path));
+            let name = || self.entries[a].title.to_lowercase().cmp(&self.entries[b].title.to_lowercase());
+            fav.then_with(|| match self.config.sort {
+                0 => played(b).map(|t| t.1).cmp(&played(a).map(|t| t.1)).then_with(name),
+                2 => played(b).map_or(0, |t| t.0).cmp(&played(a).map_or(0, |t| t.0)).then_with(name),
+                _ => name(),
+            })
+        });
+        v
+    }
+
+    /// The sort and filter chips; returns true if one was clicked.
+    fn draw_toolbar(&mut self, x: f32, y: f32, right: f32) {
+        let sort = ["Recently played", "Name", "Most played"][self.config.sort.min(2) as usize];
+        let mut chips: Vec<(String, String)> = vec![(format!("Sort: {sort}"), "#sort".into()), ("All".into(), String::new()), ("Favourites".into(), "fav".into())];
+        if self.entries.iter().any(|e| e.path.to_string_lossy().to_lowercase().contains("steamapps")) {
+            chips.push(("Steam".into(), "steam".into()));
+        }
+        for c in self.meta.collections() {
+            chips.push((c.clone(), format!("c:{c}")));
+        }
+        draw_rectangle(0.0, y - 10.0, right + 24.0, TOOLBAR_H, BG);
+        let mut cx = x;
+        let mut clicked = None;
+        for (label, key) in &chips {
+            let w = self.bold_width(label, 14) + 26.0;
+            if cx + w > right {
+                break;
+            }
+            let r = Rect::new(cx, y, w, 30.0);
+            let on = key != "#sort" && *key == self.config.filter;
+            let hover = !self.block_input && r.contains(mouse());
+            let bg = if on { ACCENT } else if hover { mix(BUTTON, TEXT, 0.08) } else { BUTTON };
+            rrect(r.x, r.y, r.w, r.h, 15.0, bg);
+            let fg = if on { Color::new(0.08, 0.05, 0.02, 1.0) } else { TEXT };
+            self.bold_text(label, r.x + 13.0, r.y + 20.0, 14, fg);
+            if self.tap(r) {
+                clicked = Some(key.clone());
+            }
+            cx += w + 8.0;
+        }
+        if let Some(k) = clicked {
+            if k == "#sort" {
+                self.config.sort = (self.config.sort + 1) % 3;
+            } else {
+                self.config.filter = k;
+            }
+            self.config.save();
+            self.scroll = 0.0;
+        }
     }
 
     /// Move the selection by `delta` places among the visible games.
@@ -113,9 +200,9 @@ impl Launcher {
         let add_btn = Rect::new(menu_btn.x - 10.0 - 92.0, 14.0, 92.0, 36.0);
         if self.icon_button(menu_btn, draw_dots) {
             let mut items = if cfg!(target_os = "android") {
-                vec![("Play log", MenuAction::PlayLog)]
+                vec![("Play log and stats", MenuAction::PlayLog)]
             } else {
-                vec![("Steam games", MenuAction::SteamGames), ("Play log", MenuAction::PlayLog), ("Open data folder", MenuAction::DataFolder)]
+                vec![("Steam games", MenuAction::SteamGames), ("Play log and stats", MenuAction::PlayLog), ("Tests", MenuAction::Tests), ("Open data folder", MenuAction::DataFolder)]
             };
             if self.sync.is_some() {
                 items.insert(0, ("Devices and sync", MenuAction::Devices));
@@ -195,7 +282,7 @@ impl Launcher {
 
     /// The library screen is showing (no panel open).
     pub(super) fn library_view(&self) -> bool {
-        self.steam_confirm.is_none() && !self.steam_panel && self.settings_panel.is_none() && !self.show_log && !self.devices_page && self.app_settings.is_none()
+        self.steam_confirm.is_none() && !self.steam_panel && self.settings_panel.is_none() && !self.show_log && !self.devices_page && self.app_settings.is_none() && self.extra.is_none()
     }
 
     fn open_menu(&mut self, right: f32, y: f32, items: Vec<(&'static str, MenuAction)>, align_right: bool) {
@@ -251,7 +338,7 @@ impl Launcher {
             self.selected = Some(vis[0]);
         }
         let panel_w = if sw < 900.0 { 300.0 } else { 360.0 };
-        let top = HEADER_H;
+        let top = HEADER_H + TOOLBAR_H;
         let grid_x = 24.0;
         let grid_right = sw - 24.0 - panel_w - 24.0;
         let grid_w = (grid_right - grid_x).max(MIN_CARD_W);
@@ -282,7 +369,7 @@ impl Launcher {
         self.scroll = self.scroll.clamp(0.0, max_scroll);
 
         if vis.is_empty() {
-            let msg = format!("No games match \"{}\"", self.search.trim());
+            let msg = if self.search.trim().is_empty() { "No games here yet: choose another filter, or add some.".to_string() } else { format!("No games match \"{}\"", self.search.trim()) };
             let w = self.text_width(&msg, 18);
             self.text(&msg, grid_x + (grid_w - w) / 2.0, top + 120.0, 18, MUTED);
         }
@@ -324,12 +411,31 @@ impl Launcher {
                 rrect(x + 8.0, y + 8.0, w, 22.0, 11.0, if missing { DANGER } else { ACCENT });
                 self.bold_text(label, x + 16.0, y + 24.0, 13, Color::new(0.08, 0.05, 0.02, 1.0));
             }
+            // Favourite star (top right): always for favourites, on hover to add one.
+            let fav = self.meta.is_favourite(&path);
+            let star = Rect::new(x + card_w - 34.0, y + 6.0, 28.0, 28.0);
+            if fav || hover {
+                draw_circle(star.x + 14.0, star.y + 14.0, 14.0, Color::new(0.0, 0.0, 0.0, 0.55));
+                draw_star(star.x + 14.0, star.y + 14.5, 9.0, if fav { WARN } else { Color::new(1.0, 1.0, 1.0, 0.6) });
+            }
+            let mut star_hit = false;
+            if (fav || hover) && self.tap(star) {
+                self.meta.toggle_favourite(&path);
+                star_hit = true;
+            }
+            // Compatibility (bottom left), once checked.
+            if let Some(c) = self.meta.get(&path).compat {
+                let (label, color) = if c.unsupported == 0 { ("Runs".to_string(), ACCENT) } else { (format!("Partial: {}", c.unsupported), WARN) };
+                let w = self.bold_width(&label, 12) + 14.0;
+                rrect(x + 6.0, y + card_h - 26.0, w, 20.0, 10.0, color);
+                self.bold_text(&label, x + 13.0, y + card_h - 11.0, 12, Color::new(0.08, 0.05, 0.02, 1.0));
+            }
             let title = self.fit(&self.entries[i].title, 16, card_w);
             self.text(&title, x, y + card_h + 22.0, 16, if selected { TEXT } else { mix(TEXT, MUTED, 0.3) });
             if let Some((secs, _)) = self.totals.get(&path.to_string_lossy().to_lowercase()) {
                 self.text(&format!("{} played", playlog::duration(*secs)), x, y + card_h + 40.0, 13, MUTED);
             }
-            if self.tap(card) {
+            if !star_hit && mouse.y > top && self.tap(card) {
                 self.selected = Some(i);
                 let now = get_time();
                 if self.last_click.is_some_and(|(j, t)| j == i && now - t < 0.4) {
@@ -341,8 +447,9 @@ impl Launcher {
             }
         }
 
+        self.draw_toolbar(grid_x, HEADER_H + 14.0, grid_right);
         if let Some(i) = self.selected.filter(|s| vis.contains(s)) {
-            if let Some(a) = self.draw_details(i, sw - 24.0 - panel_w, top + 20.0, panel_w, sh - top - 44.0) {
+            if let Some(a) = self.draw_details(i, sw - 24.0 - panel_w, HEADER_H + 20.0, panel_w, sh - HEADER_H - 44.0) {
                 action = Some((i, a));
             }
         }
@@ -457,6 +564,21 @@ impl Launcher {
         let stats = self.fit(&stats, 15, inner);
         self.text(&stats, x + pad, ty - 6.0, 15, MUTED);
         ty += 18.0;
+        // Compatibility, with a button to (re)check.
+        let checking = self.checking.contains(&path);
+        let (compat, color) = match (checking, self.meta.get(&path).compat) {
+            (true, _) => ("Checking every screen...".to_string(), ACCENT),
+            (_, Some(c)) if c.unsupported == 0 => ("Runs: nothing unsupported".to_string(), ACCENT),
+            (_, Some(c)) => (format!("{} unsupported feature{}", c.unsupported, if c.unsupported == 1 { "" } else { "s" }), WARN),
+            (_, None) => ("Compatibility not checked yet".to_string(), MUTED),
+        };
+        let check = Rect::new(x + w - pad - 70.0, ty - 12.0, 70.0, 26.0);
+        let compat = self.fit(&compat, 14, inner - 80.0);
+        self.text(&compat, x + pad, ty + 6.0, 14, color);
+        if path.is_file() && self.button(check, "Check", false, !checking) {
+            self.check_compat(i);
+        }
+        ty += 26.0;
 
         let missing = !path.is_file();
         let running = self.running.iter().any(|(p, _)| *p == path);
@@ -481,6 +603,13 @@ impl Launcher {
         }
         if self.icon_button(more, draw_dots) {
             let mut items = Vec::new();
+            items.push((if self.meta.is_favourite(&path) { "Remove from favourites" } else { "Add to favourites" }, MenuAction::Favourite(i)));
+            items.push(("Collections...", MenuAction::Collections(i)));
+            if !missing {
+                items.push(("Check compatibility", MenuAction::CheckCompat(i)));
+            }
+            items.push(("Screenshots", MenuAction::Screenshots(i)));
+            items.push(("Report a problem", MenuAction::Report(i)));
             if self.has_steam && !missing {
                 items.push(("Add to Steam", MenuAction::ToSteam(i)));
             }
@@ -566,6 +695,8 @@ impl Launcher {
                 self.steam_panel = true;
                 self.settings_panel = None;
                 self.app_settings = None;
+                self.extra = None;
+        self.extra = None;
                 self.show_log = false;
             }
             MenuAction::PlayLog => {
@@ -574,6 +705,8 @@ impl Launcher {
                 self.steam_panel = false;
                 self.settings_panel = None;
                 self.app_settings = None;
+                self.extra = None;
+        self.extra = None;
                 self.scroll = 0.0;
             }
             MenuAction::DataFolder => self.open_data_folder(),
@@ -586,6 +719,8 @@ impl Launcher {
                 self.steam_panel = false;
                 self.settings_panel = None;
                 self.app_settings = None;
+                self.extra = None;
+        self.extra = None;
                 self.show_log = false;
                 self.scroll = 0.0;
             }
@@ -641,6 +776,17 @@ impl Launcher {
                     let _ = tx.send(Msg::Upscaled(r.unwrap_or_else(|e| format!("AI upscale failed: {e}"))));
                 });
             }
+            MenuAction::Favourite(i) => {
+                if let Some(e) = self.entries.get(i).cloned() {
+                    let on = self.meta.toggle_favourite(&e.path);
+                    self.say(if on { format!("{} is a favourite.", e.title) } else { format!("{} is no longer a favourite.", e.title) });
+                }
+            }
+            MenuAction::Collections(i) => self.open_extra(super::extras::Extra::Collections(i)),
+            MenuAction::CheckCompat(i) => self.check_compat(i),
+            MenuAction::Screenshots(i) => self.open_extra(super::extras::Extra::Screenshots(i)),
+            MenuAction::Report(i) => self.open_extra(super::extras::Extra::Report(i)),
+            MenuAction::Tests => self.open_extra(super::extras::Extra::Tests),
             MenuAction::AppSettings => {
                 self.devices_page = false;
                 self.steam_panel = false;
