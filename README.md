@@ -126,7 +126,9 @@ games when the launcher starts (or with *Scan now*); files that turn out not to 
 `not-games.txt` and skipped. A game's settings page has **launch options**: a frame to start on, extra command-line
 options (quote ones with spaces), and debug panels open at the start. *Choose cover / banner picture...* in a game's
 menu uses your own PNG or JPEG (kept as `custom-cover` / `custom-hero` in its art folder; *Refresh artwork* keeps them,
-*Remove my pictures* goes back).
+*Remove my pictures* goes back). Several **versions** of one game (entries whose titles differ only in a "(...)" ending, e.g. a
+"(Steam)" copy or another build's file name) share one cover with an "N versions" badge; chips in its panel pick which
+one shows and plays (remembered in `versions.tsv`).
 
 **Steam** (shown when Steam is installed; also `klikcore GAME --add-to-steam`) adds the game to Steam as a non-Steam
 shortcut that starts it with KlikCore, with the game's icon. If the game is or was a Steam game (installed through

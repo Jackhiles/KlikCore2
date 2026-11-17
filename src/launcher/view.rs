@@ -113,6 +113,20 @@ impl Launcher {
                 }
             })
             .collect();
+        // Versions of one game: only the chosen one (or the first in the list) gets a card.
+        let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+        for &i in &v {
+            groups.entry(super::meta::version_group(&self.entries[i].title)).or_default().push(i);
+        }
+        v.retain(|&i| {
+            let g = super::meta::version_group(&self.entries[i].title);
+            let members = &groups[&g];
+            if members.len() < 2 {
+                return true;
+            }
+            let pick = self.meta.preferred(&g).and_then(|p| members.iter().copied().find(|&k| self.entries[k].path.to_string_lossy().to_lowercase() == p));
+            pick.unwrap_or(members[0]) == i
+        });
         // Favourites first, then the chosen order.
         let played = |i: usize| self.totals.get(&self.entries[i].path.to_string_lossy().to_lowercase()).cloned();
         v.sort_by(|&a, &b| {
@@ -125,6 +139,12 @@ impl Launcher {
             })
         });
         v
+    }
+
+    /// Every library entry that is a version of game `i` (including it), in library order.
+    pub(super) fn versions_of(&self, i: usize) -> Vec<usize> {
+        let g = super::meta::version_group(&self.entries[i].title);
+        (0..self.entries.len()).filter(|&k| super::meta::version_group(&self.entries[k].title) == g).collect()
     }
 
     /// The sort and filter chips; returns true if one was clicked.
@@ -426,6 +446,14 @@ impl Launcher {
                 self.meta.toggle_favourite(&path);
                 star_hit = true;
             }
+            // Several versions of the game.
+            let versions = self.versions_of(i).len();
+            if versions > 1 {
+                let label = format!("{versions} versions");
+                let w = self.bold_width(&label, 12) + 14.0;
+                rrect(x + 6.0, y + 8.0, w, 20.0, 10.0, Color::new(0.0, 0.0, 0.0, 0.6));
+                self.bold_text(&label, x + 13.0, y + 23.0, 12, TEXT);
+            }
             // Compatibility (bottom left), once checked.
             if let Some(c) = self.meta.get(&path).compat {
                 let (label, color) = if c.unsupported == 0 { ("Runs".to_string(), ACCENT) } else { (format!("Partial: {}", c.unsupported), WARN) };
@@ -567,6 +595,35 @@ impl Launcher {
         let stats = self.fit(&stats, 15, inner);
         self.text(&stats, x + pad, ty - 6.0, 15, MUTED);
         ty += 18.0;
+        // Versions of the game: which one shows and plays.
+        let versions = self.versions_of(i);
+        if versions.len() > 1 {
+            let mut cx = x + pad;
+            let mut chosen = None;
+            for &k in &versions {
+                let label = super::meta::version_label(&self.entries[k].title);
+                let label = self.fit(&label, 13, inner * 0.6);
+                let cw = self.bold_width(&label, 13) + 20.0;
+                if cx + cw > x + w - pad {
+                    break;
+                }
+                let r = Rect::new(cx, ty - 14.0, cw, 24.0);
+                let on = k == i;
+                rrect(r.x, r.y, r.w, r.h, 12.0, if on { ACCENT } else { BUTTON });
+                self.bold_text(&label, r.x + 10.0, r.y + 17.0, 13, if on { Color::new(0.08, 0.05, 0.02, 1.0) } else { TEXT });
+                if !on && self.tap(r) {
+                    chosen = Some(k);
+                }
+                cx += cw + 6.0;
+            }
+            ty += 30.0;
+            if let Some(k) = chosen {
+                let g = super::meta::version_group(&self.entries[k].title);
+                let p = self.entries[k].path.clone();
+                self.meta.set_preferred(&g, &p);
+                self.selected = Some(k);
+            }
+        }
         // Compatibility, with a button to (re)check.
         let checking = self.checking.contains(&path);
         let (compat, color) = match (checking, self.meta.get(&path).compat) {

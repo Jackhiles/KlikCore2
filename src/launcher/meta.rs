@@ -27,6 +27,32 @@ pub struct GameMeta {
 #[derive(Debug, Default)]
 pub struct Meta {
     games: HashMap<String, GameMeta>,
+    /// Several versions of one game: the one to show and play, by version group.
+    preferred: HashMap<String, String>,
+}
+
+/// Library entries that are versions of one game share this: the title without a
+/// "(...)" ending the launcher adds to tell them apart (a file name, "Steam").
+pub fn version_group(title: &str) -> String {
+    let t = title.trim();
+    let base = match (t.ends_with(')'), t.rfind(" (")) {
+        (true, Some(i)) if i > 0 => &t[..i],
+        _ => t,
+    };
+    base.trim().to_lowercase()
+}
+
+/// How a version is labelled: its "(...)" ending, or "Original" for the one without.
+pub fn version_label(title: &str) -> String {
+    let t = title.trim();
+    match (t.ends_with(')'), t.rfind(" (")) {
+        (true, Some(i)) if i > 0 => t[i + 2..t.len() - 1].to_string(),
+        _ => "Original".to_string(),
+    }
+}
+
+fn versions_file() -> PathBuf {
+    crate::runtime::files::data_root().join("versions.tsv")
 }
 
 fn key(p: &Path) -> String {
@@ -40,6 +66,13 @@ fn file() -> PathBuf {
 impl Meta {
     pub fn load() -> Self {
         let mut m = Self::default();
+        if let Ok(text) = std::fs::read_to_string(versions_file()) {
+            for l in text.lines() {
+                if let Some((g, p)) = l.split_once('\t') {
+                    m.preferred.insert(g.to_string(), p.to_lowercase());
+                }
+            }
+        }
         let Ok(text) = std::fs::read_to_string(file()) else { return m };
         for l in text.lines() {
             let f: Vec<&str> = l.split('\t').collect();
@@ -73,6 +106,18 @@ impl Meta {
             out += &format!("{k}\t{}\t{}\t{n}\t{when}\t{details}\n", g.favourite as u8, cols.join("|"));
         }
         let _ = std::fs::write(file(), out);
+    }
+
+    /// The version of group `g` to show (lower-cased path), if one was chosen.
+    pub fn preferred(&self, g: &str) -> Option<&str> {
+        self.preferred.get(g).map(String::as_str)
+    }
+
+    pub fn set_preferred(&mut self, g: &str, p: &Path) {
+        self.preferred.insert(g.to_string(), key(p));
+        let mut rows: Vec<String> = self.preferred.iter().map(|(g, p)| format!("{g}\t{p}")).collect();
+        rows.sort();
+        let _ = std::fs::write(versions_file(), rows.join("\n") + "\n");
     }
 
     pub fn get(&self, p: &Path) -> GameMeta {
@@ -144,6 +189,15 @@ pub fn parse_sweep(output: &str) -> Option<Compat> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn versions_group_by_title() {
+        assert_eq!(version_group("Night Shift 4 (Steam)"), version_group("Night Shift 4"));
+        assert_eq!(version_group("Quest Two (quest56-online)"), "quest two");
+        assert_eq!(version_label("Quest Two (quest56-online)"), "quest56-online");
+        assert_eq!(version_label("Quest Two"), "Original");
+        assert_eq!(version_group("(Untitled)"), "(untitled)");
+    }
 
     #[test]
     fn sweep_output_is_read() {
