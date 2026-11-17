@@ -110,7 +110,7 @@ impl Launcher {
         let w = (sw - 48.0).min(520.0);
         let h = 250.0;
         let (x, y) = ((sw - w) / 2.0, (sh - h) / 2.0);
-        rrect(x, y, w, h, 14.0, CARD);
+        rrect(x, y, w, h, 14.0, CARD());
         let title = match (&p.result, p.incoming) {
             (Some(Ok(n)), _) => format!("Paired with {n}"),
             (Some(Err(_)), _) => "Pairing didn't finish".to_string(),
@@ -118,7 +118,7 @@ impl Launcher {
             (None, false) => format!("Pairing with {}", p.peer_name),
         };
         let t = self.fit(&title, 22, w - 48.0);
-        self.bold_text(&t, x + 24.0, y + 42.0, 22, TEXT);
+        self.bold_text(&t, x + 24.0, y + 42.0, 22, TEXT());
         let block_was = self.block_input;
         self.block_input = false;
         match (&p.result, &p.code) {
@@ -128,7 +128,7 @@ impl Launcher {
                     Err(e) => e.clone(),
                 };
                 let m = self.fit(&msg, 15, w - 48.0);
-                self.text(&m, x + 24.0, y + 90.0, 15, MUTED);
+                self.text(&m, x + 24.0, y + 90.0, 15, MUTED());
                 if self.button(Rect::new(x + w - 24.0 - 110.0, y + h - 24.0 - 42.0, 110.0, 42.0), "OK", true, true)
                     || is_key_pressed(KeyCode::Enter)
                     || is_key_pressed(KeyCode::Escape)
@@ -141,13 +141,13 @@ impl Launcher {
                     }
                 }
             }
-            (None, None) => self.text("Connecting...", x + 24.0, y + 90.0, 15, MUTED),
+            (None, None) => self.text("Connecting...", x + 24.0, y + 90.0, 15, MUTED()),
             (None, Some(code)) => {
-                self.text("Check that the other device shows the same code:", x + 24.0, y + 80.0, 15, MUTED);
+                self.text("Check that the other device shows the same code:", x + 24.0, y + 80.0, 15, MUTED());
                 let cw = self.bold_width(code, 44);
-                self.bold_text(code, x + (w - cw) / 2.0, y + 142.0, 44, ACCENT);
+                self.bold_text(code, x + (w - cw) / 2.0, y + 142.0, 44, ACCENT());
                 if p.decision.is_some() {
-                    self.text("Waiting for the other device...", x + 24.0, y + h - 36.0, 15, MUTED);
+                    self.text("Waiting for the other device...", x + 24.0, y + h - 36.0, 15, MUTED());
                 } else {
                     let cancel = Rect::new(x + w - 24.0 - 110.0, y + h - 24.0 - 42.0, 110.0, 42.0);
                     let ok = Rect::new(cancel.x - 12.0 - 180.0, cancel.y, 180.0, 42.0);
@@ -186,18 +186,18 @@ impl Launcher {
         };
 
         // This device.
-        rrect(p.x, p.y, p.w, 70.0, 12.0, CARD);
-        self.text("This device", p.x + CARD_PAD, p.y + 30.0, 17, TEXT);
+        rrect(p.x, p.y, p.w, 70.0, 12.0, CARD());
+        self.text("This device", p.x + CARD_PAD, p.y + 30.0, 17, TEXT());
         let vis = if svc.port == 0 { "Can't listen on the network (another KlikCore may be open)".to_string() } else { format!("{}, visible to other devices on this network", svc.me.name) };
         let vis = self.fit(&vis, 14, p.w - 2.0 * CARD_PAD);
-        self.text(&vis, p.x + CARD_PAD, p.y + 52.0, 14, MUTED);
+        self.text(&vis, p.x + CARD_PAD, p.y + 52.0, 14, MUTED());
         p.y += 70.0 + SECTION_GAP;
 
         // Paired devices.
         self.section_title(&mut p, "PAIRED");
         if peers.is_empty() {
-            rrect(p.x, p.y, p.w, 60.0, 12.0, CARD);
-            self.text("No paired devices yet. Pair one from the list below.", p.x + CARD_PAD, p.y + 36.0, 15, MUTED);
+            rrect(p.x, p.y, p.w, 60.0, 12.0, CARD());
+            self.text("No paired devices yet. Pair one from the list below.", p.x + CARD_PAD, p.y + 36.0, 15, MUTED());
             p.y += 60.0;
         } else {
             let y0 = p.y;
@@ -205,16 +205,16 @@ impl Launcher {
             for (k, peer) in peers.iter().enumerate() {
                 let y = y0 + k as f32 * DEV_ROW;
                 if k > 0 {
-                    draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD, TEXT, 0.06));
+                    draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD(), TEXT(), 0.06));
                 }
                 let online = nearby.iter().any(|n| n.id == peer.id);
-                draw_circle(p.x + CARD_PAD + 5.0, y + 26.0, 5.0, if online { Color::new(0.35, 0.8, 0.45, 1.0) } else { MUTED });
+                draw_circle(p.x + CARD_PAD + 5.0, y + 26.0, 5.0, if online { Color::new(0.35, 0.8, 0.45, 1.0) } else { MUTED() });
                 let unpair_w = 96.0;
                 let games_w = 90.0;
                 let sync_w = 110.0;
                 let bx = p.x + p.w - CARD_PAD - unpair_w - games_w - sync_w - 16.0;
                 let name = self.fit(&peer.name, 17, bx - p.x - CARD_PAD - 30.0);
-                self.text(&name, p.x + CARD_PAD + 18.0, y + 32.0, 17, TEXT);
+                self.text(&name, p.x + CARD_PAD + 18.0, y + 32.0, 17, TEXT());
                 let line = if syncing.contains(&peer.id) {
                     "Syncing...".to_string()
                 } else {
@@ -223,7 +223,7 @@ impl Launcher {
                     if st.is_empty() { base } else { format!("{base} - {st}") }
                 };
                 let line = self.fit(&line, 14, bx - p.x - CARD_PAD - 30.0);
-                self.text(&line, p.x + CARD_PAD + 18.0, y + 54.0, 14, MUTED);
+                self.text(&line, p.x + CARD_PAD + 18.0, y + 54.0, 14, MUTED());
                 let by = y + (DEV_ROW - 38.0) / 2.0;
                 if self.button(Rect::new(bx, by, sync_w, 38.0), "Sync now", false, online && !syncing.contains(&peer.id)) {
                     svc.sync_with(&peer.id, None);
@@ -251,9 +251,9 @@ impl Launcher {
         self.section_title(&mut p, "ON THIS NETWORK");
         let unpaired: Vec<_> = nearby.iter().filter(|n| !peers.iter().any(|q| q.id == n.id)).collect();
         if unpaired.is_empty() {
-            rrect(p.x, p.y, p.w, 60.0, 12.0, CARD);
+            rrect(p.x, p.y, p.w, 60.0, 12.0, CARD());
             let msg = self.fit("Looking for devices... Open KlikCore on the other device, on the same network.", 15, p.w - 2.0 * CARD_PAD);
-            self.text(&msg, p.x + CARD_PAD, p.y + 36.0, 15, MUTED);
+            self.text(&msg, p.x + CARD_PAD, p.y + 36.0, 15, MUTED());
             p.y += 60.0;
         } else {
             let y0 = p.y;
@@ -261,10 +261,10 @@ impl Launcher {
             for (k, n) in unpaired.iter().enumerate() {
                 let y = y0 + k as f32 * DEV_ROW;
                 if k > 0 {
-                    draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD, TEXT, 0.06));
+                    draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD(), TEXT(), 0.06));
                 }
                 let name = self.fit(&n.name, 17, p.w - 2.0 * CARD_PAD - 120.0);
-                self.text(&name, p.x + CARD_PAD, y + 32.0, 17, TEXT);
+                self.text(&name, p.x + CARD_PAD, y + 32.0, 17, TEXT());
                 let os = match n.os.as_str() {
                     "windows" => "Windows",
                     "linux" => "Linux / Steam Deck",
@@ -272,7 +272,7 @@ impl Launcher {
                     "macos" => "macOS",
                     o => o,
                 };
-                self.text(&format!("{os} - {}", n.addr.ip()), p.x + CARD_PAD, y + 54.0, 14, MUTED);
+                self.text(&format!("{os} - {}", n.addr.ip()), p.x + CARD_PAD, y + 54.0, 14, MUTED());
                 if self.button(Rect::new(p.x + p.w - CARD_PAD - 100.0, y + (DEV_ROW - 38.0) / 2.0, 100.0, 38.0), "Pair", true, true) {
                     svc.pair_with(&n.id);
                 }
@@ -283,7 +283,7 @@ impl Launcher {
         self.add_by_address(&svc, &mut p);
         p.y += 16.0;
         let note = self.fit("Saves sync when the launcher opens and when you close a game; the newer save wins and the older one is backed up.", 14, p.w);
-        self.text(&note, p.x, p.y + 14.0, 14, MUTED);
+        self.text(&note, p.x, p.y + 14.0, 14, MUTED());
         p.y += 30.0;
         self.page_scroll(top, p.y);
         if close {
@@ -296,13 +296,13 @@ impl Launcher {
     /// "Add by address": for devices on another subnet, which broadcasts don't reach.
     fn add_by_address(&mut self, svc: &crate::sync::Service, p: &mut super::pages::Page) {
         let h = 74.0;
-        rrect(p.x, p.y, p.w, h, 12.0, CARD);
+        rrect(p.x, p.y, p.w, h, 12.0, CARD());
         let mine = crate::sync::service::local_address().map(|a| a.to_string()).unwrap_or_else(|| "unknown".into());
         match self.addr_input.clone() {
             None => {
-                self.text("Can't see a device?", p.x + CARD_PAD, p.y + 31.0, 17, TEXT);
+                self.text("Can't see a device?", p.x + CARD_PAD, p.y + 31.0, 17, TEXT());
                 let hint = self.fit(&format!("Add it by its address. This device's address is {mine}."), 14, p.w - 2.0 * CARD_PAD - 190.0);
-                self.text(&hint, p.x + CARD_PAD, p.y + 53.0, 14, MUTED);
+                self.text(&hint, p.x + CARD_PAD, p.y + 53.0, 14, MUTED());
                 if self.button(Rect::new(p.x + p.w - CARD_PAD - 170.0, p.y + (h - 38.0) / 2.0, 170.0, 38.0), "Add by address", false, true) {
                     self.addr_input = Some(String::new());
                     #[cfg(target_os = "android")]
@@ -319,11 +319,11 @@ impl Launcher {
                     text.pop();
                 }
                 let field = Rect::new(p.x + CARD_PAD, p.y + (h - 40.0) / 2.0, (p.w - 2.0 * CARD_PAD - 230.0).max(160.0), 40.0);
-                rrect(field.x, field.y, field.w, field.h, 8.0, BG);
+                rrect(field.x, field.y, field.w, field.h, 8.0, BG());
                 let shown = if text.is_empty() { "e.g. 192.168.1.20".to_string() } else { text.clone() };
-                self.text(&shown, field.x + 12.0, field.y + 26.0, 16, if text.is_empty() { MUTED } else { TEXT });
+                self.text(&shown, field.x + 12.0, field.y + 26.0, 16, if text.is_empty() { MUTED() } else { TEXT() });
                 if (get_time() * 2.0) as i64 % 2 == 0 && !text.is_empty() {
-                    draw_rectangle(field.x + 13.0 + self.text_width(&text, 16), field.y + 10.0, 1.5, 20.0, TEXT);
+                    draw_rectangle(field.x + 13.0 + self.text_width(&text, 16), field.y + 10.0, 1.5, 20.0, TEXT());
                 }
                 let ip = text.trim().parse::<std::net::IpAddr>().ok();
                 let add = Rect::new(field.x + field.w + 10.0, field.y, 100.0, 40.0);
@@ -361,14 +361,14 @@ impl Launcher {
         let have: Vec<String> = self.entries.iter().map(|e| e.title.to_lowercase()).collect();
         match list {
             None => {
-                rrect(p.x, p.y, p.w, 60.0, 12.0, CARD);
-                self.text("Asking for the list...", p.x + CARD_PAD, p.y + 36.0, 15, MUTED);
+                rrect(p.x, p.y, p.w, 60.0, 12.0, CARD());
+                self.text("Asking for the list...", p.x + CARD_PAD, p.y + 36.0, 15, MUTED());
                 p.y += 60.0;
             }
             Some(Err(e)) => {
-                rrect(p.x, p.y, p.w, 60.0, 12.0, CARD);
+                rrect(p.x, p.y, p.w, 60.0, 12.0, CARD());
                 let e = self.fit(&e, 15, p.w - 2.0 * CARD_PAD);
-                self.text(&e, p.x + CARD_PAD, p.y + 36.0, 15, MUTED);
+                self.text(&e, p.x + CARD_PAD, p.y + 36.0, 15, MUTED());
                 p.y += 60.0;
             }
             Some(Ok(games)) => {
@@ -376,15 +376,15 @@ impl Launcher {
                 let n = games.len().max(1);
                 self.card_behind(p.x, y0, p.w, y0 + n as f32 * DEV_ROW);
                 if games.is_empty() {
-                    self.text("That device's library is empty.", p.x + CARD_PAD, y0 + 42.0, 15, MUTED);
+                    self.text("That device's library is empty.", p.x + CARD_PAD, y0 + 42.0, 15, MUTED());
                 }
                 for (k, g) in games.iter().enumerate() {
                     let y = y0 + k as f32 * DEV_ROW;
                     if k > 0 {
-                        draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD, TEXT, 0.06));
+                        draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD(), TEXT(), 0.06));
                     }
                     let t = self.fit(&g.title, 17, p.w - 2.0 * CARD_PAD - 160.0);
-                    self.text(&t, p.x + CARD_PAD, y + 32.0, 17, TEXT);
+                    self.text(&t, p.x + CARD_PAD, y + 32.0, 17, TEXT());
                     let transfer = transfers.iter().rev().find(|t| t.title == g.title);
                     let line = match transfer {
                         Some(t) if t.result.is_none() => format!("Copying... {} of {}", size_text(t.done), size_text(t.total.max(t.done))),
@@ -392,7 +392,7 @@ impl Launcher {
                         _ => format!("{} - {} file{}", size_text(g.size), g.files, if g.files == 1 { "" } else { "s" }),
                     };
                     let line = self.fit(&line, 14, p.w - 2.0 * CARD_PAD - 160.0);
-                    self.text(&line, p.x + CARD_PAD, y + 54.0, 14, MUTED);
+                    self.text(&line, p.x + CARD_PAD, y + 54.0, 14, MUTED());
                     let copying = transfer.is_some_and(|t| t.result.is_none());
                     let done = transfer.is_some_and(|t| matches!(t.result, Some(Ok(_)))) || have.contains(&g.title.to_lowercase());
                     let label = if done { "On this device" } else if copying { "Copying..." } else { "Copy here" };
@@ -450,14 +450,14 @@ impl Launcher {
         };
         let online: Vec<_> = peers.iter().filter(|p| nearby.contains_key(&p.id)).collect();
         if online.is_empty() {
-            rrect(p.x, p.y, p.w, 92.0, 12.0, CARD);
+            rrect(p.x, p.y, p.w, 92.0, 12.0, CARD());
             let msg = if peers.is_empty() {
                 "No paired devices yet. Pair this device with KlikCore on your PC first."
             } else {
                 "None of your paired devices is on the network right now. Open KlikCore on one of them."
             };
             let msg = self.fit(msg, 15, p.w - 2.0 * CARD_PAD - 170.0);
-            self.text(&msg, p.x + CARD_PAD, p.y + 52.0, 15, MUTED);
+            self.text(&msg, p.x + CARD_PAD, p.y + 52.0, 15, MUTED());
             if self.button(Rect::new(p.x + p.w - CARD_PAD - 150.0, p.y + 26.0, 150.0, 40.0), "Pair a device", true, true) {
                 self.games_chooser = false;
                 self.games_from_menu = false;
@@ -469,11 +469,11 @@ impl Launcher {
             for (k, peer) in online.iter().enumerate() {
                 let y = y0 + k as f32 * DEV_ROW;
                 if k > 0 {
-                    draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD, TEXT, 0.06));
+                    draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD(), TEXT(), 0.06));
                 }
                 let name = self.fit(&peer.name, 17, p.w - 2.0 * CARD_PAD - 170.0);
-                self.text(&name, p.x + CARD_PAD, y + 32.0, 17, TEXT);
-                self.text("On this network", p.x + CARD_PAD, y + 54.0, 14, MUTED);
+                self.text(&name, p.x + CARD_PAD, y + 32.0, 17, TEXT());
+                self.text("On this network", p.x + CARD_PAD, y + 54.0, 14, MUTED());
                 if self.button(Rect::new(p.x + p.w - CARD_PAD - 150.0, y + (DEV_ROW - 40.0) / 2.0, 150.0, 40.0), "Show games", true, true) {
                     svc.request_library(&peer.id);
                     self.remote_games_for = Some(peer.id.clone());

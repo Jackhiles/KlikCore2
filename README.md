@@ -128,7 +128,7 @@ options (quote ones with spaces), and debug panels open at the start. *Choose co
 menu uses your own PNG or JPEG (kept as `custom-cover` / `custom-hero` in its art folder; *Refresh artwork* keeps them,
 *Remove my pictures* goes back). Several **versions** of one game (entries whose titles differ only in a "(...)" ending, e.g. a
 "(Steam)" copy or another build's file name) share one cover with an "N versions" badge; chips in its panel pick which
-one shows and plays (remembered in `versions.tsv`).
+one shows and plays (remembered in `versions.tsv`). Settings also has a **light theme** and **accent colours** (mint, blue, purple, orange, pink).
 
 **Steam** (shown when Steam is installed; also `klikcore GAME --add-to-steam`) adds the game to Steam as a non-Steam
 shortcut that starts it with KlikCore, with the game's icon. If the game is or was a Steam game (installed through

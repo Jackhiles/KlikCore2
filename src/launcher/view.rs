@@ -54,7 +54,6 @@ const MAX_CARD_W: f32 = 220.0;
 const TITLE_SPACE: f32 = 46.0;
 /// The sort / filter chips above the cover grid.
 const TOOLBAR_H: f32 = 46.0;
-const WARN: Color = Color::new(0.96, 0.73, 0.30, 1.0);
 
 /// A five-pointed star (favourites).
 fn draw_star(cx: f32, cy: f32, r: f32, c: Color) {
@@ -157,7 +156,7 @@ impl Launcher {
         for c in self.meta.collections() {
             chips.push((c.clone(), format!("c:{c}")));
         }
-        draw_rectangle(0.0, y - 10.0, right + 24.0, TOOLBAR_H, BG);
+        draw_rectangle(0.0, y - 10.0, right + 24.0, TOOLBAR_H, BG());
         let mut cx = x;
         let mut clicked = None;
         for (label, key) in &chips {
@@ -168,9 +167,9 @@ impl Launcher {
             let r = Rect::new(cx, y, w, 30.0);
             let on = key != "#sort" && *key == self.config.filter;
             let hover = !self.block_input && r.contains(mouse());
-            let bg = if on { ACCENT } else if hover { mix(BUTTON, TEXT, 0.08) } else { BUTTON };
+            let bg = if on { ACCENT() } else if hover { mix(BUTTON(), TEXT(), 0.08) } else { BUTTON() };
             rrect(r.x, r.y, r.w, r.h, 15.0, bg);
-            let fg = if on { Color::new(0.08, 0.05, 0.02, 1.0) } else { TEXT };
+            let fg = if on { Color::new(0.08, 0.05, 0.02, 1.0) } else { TEXT() };
             self.bold_text(label, r.x + 13.0, r.y + 20.0, 14, fg);
             if self.tap(r) {
                 clicked = Some(key.clone());
@@ -206,17 +205,17 @@ impl Launcher {
     /// A small square button with a drawn icon; returns true when clicked.
     pub(super) fn icon_button(&self, r: Rect, draw_icon: impl Fn(f32, f32, Color)) -> bool {
         let hover = !self.block_input && r.contains(mouse());
-        rrect(r.x, r.y, r.w, r.h, 8.0, if hover { mix(BUTTON, TEXT, 0.08) } else { BUTTON });
-        draw_icon(r.x + r.w / 2.0, r.y + r.h / 2.0, TEXT);
+        rrect(r.x, r.y, r.w, r.h, 8.0, if hover { mix(BUTTON(), TEXT(), 0.08) } else { BUTTON() });
+        draw_icon(r.x + r.w / 2.0, r.y + r.h / 2.0, TEXT());
         self.tap(r)
     }
 
     pub(super) fn draw_header(&mut self, sw: f32) {
-        draw_rectangle(0.0, 0.0, sw, HEADER_H, BG);
+        draw_rectangle(0.0, 0.0, sw, HEADER_H, BG());
         if let Some(t) = self.logo() {
             draw_texture_ex(&t, 24.0, 16.0, WHITE, DrawTextureParams { dest_size: Some(vec2(32.0, 32.0)), ..Default::default() });
         }
-        self.bold_text("KlikCore 2", 66.0, 41.0, 24, TEXT);
+        self.bold_text("KlikCore 2", 66.0, 41.0, 24, TEXT());
         let idle = self.busy.is_none();
 
         let menu_btn = Rect::new(sw - 24.0 - 40.0, 14.0, 40.0, 36.0);
@@ -286,21 +285,21 @@ impl Launcher {
             if self.tap(r) {
                 macroquad::miniquad::window::show_keyboard(true);
             }
-            rrect(r.x, r.y, r.w, r.h, 18.0, CARD);
-            draw_circle_lines(r.x + 20.0, r.y + 17.0, 6.0, 1.6, MUTED);
-            draw_line(r.x + 24.5, r.y + 21.5, r.x + 29.0, r.y + 26.0, 1.8, MUTED);
+            rrect(r.x, r.y, r.w, r.h, 18.0, CARD());
+            draw_circle_lines(r.x + 20.0, r.y + 17.0, 6.0, 1.6, MUTED());
+            draw_line(r.x + 24.5, r.y + 21.5, r.x + 29.0, r.y + 26.0, 1.8, MUTED());
             if self.search.is_empty() {
-                self.text("Type to search", r.x + 38.0, r.y + 24.0, 16, MUTED);
+                self.text("Type to search", r.x + 38.0, r.y + 24.0, 16, MUTED());
             } else {
                 let shown = self.fit(&self.search, 16, r.w - 60.0);
-                self.text(&shown, r.x + 38.0, r.y + 24.0, 16, TEXT);
+                self.text(&shown, r.x + 38.0, r.y + 24.0, 16, TEXT());
                 if (get_time() * 2.0) as i64 % 2 == 0 {
                     let cx = r.x + 38.0 + self.text_width(&shown, 16) + 2.0;
-                    draw_rectangle(cx, r.y + 10.0, 1.5, 17.0, TEXT);
+                    draw_rectangle(cx, r.y + 10.0, 1.5, 17.0, TEXT());
                 }
             }
         }
-        draw_line(0.0, HEADER_H - 0.5, sw, HEADER_H - 0.5, 1.0, mix(BG, TEXT, 0.06));
+        draw_line(0.0, HEADER_H - 0.5, sw, HEADER_H - 0.5, 1.0, mix(BG(), TEXT(), 0.06));
     }
 
     /// The library screen is showing (no panel open).
@@ -394,7 +393,7 @@ impl Launcher {
         if vis.is_empty() {
             let msg = if self.search.trim().is_empty() { "No games here yet: choose another filter, or add some.".to_string() } else { format!("No games match \"{}\"", self.search.trim()) };
             let w = self.text_width(&msg, 18);
-            self.text(&msg, grid_x + (grid_w - w) / 2.0, top + 120.0, 18, MUTED);
+            self.text(&msg, grid_x + (grid_w - w) / 2.0, top + 120.0, 18, MUTED());
         }
         for (k, &i) in vis.iter().enumerate() {
             let x = grid_x + (k % cols) as f32 * (card_w + GAP);
@@ -406,14 +405,14 @@ impl Launcher {
             let hover = !self.block_input && card.contains(mouse) && mouse.y > top;
             let selected = self.selected == Some(i);
             if selected {
-                rrect(x - 4.0, y - 4.0, card_w + 8.0, card_h + 8.0, 8.0, ACCENT);
+                rrect(x - 4.0, y - 4.0, card_w + 8.0, card_h + 8.0, 8.0, ACCENT());
             }
             let path = self.entries[i].path.clone();
             let cover = self.art_for(i).0;
             match cover {
                 Some(t) => draw_texture_ex(&t, x, y, WHITE, DrawTextureParams { dest_size: Some(vec2(card_w, card_h)), ..Default::default() }),
                 None => {
-                    rrect(x, y, card_w, card_h, 6.0, CARD);
+                    rrect(x, y, card_w, card_h, 6.0, CARD());
                     if let Some(t) = self.icon(&path) {
                         let s = (card_w * 0.4).min(72.0);
                         draw_texture_ex(&t, x + (card_w - s) / 2.0, y + (card_h - s) / 2.0, WHITE, DrawTextureParams { dest_size: Some(vec2(s, s)), ..Default::default() });
@@ -431,7 +430,7 @@ impl Launcher {
                     draw_rectangle(x, y, card_w, card_h, Color::new(0.0, 0.0, 0.0, 0.55));
                 }
                 let w = self.bold_width(label, 13) + 16.0;
-                rrect(x + 8.0, y + 8.0, w, 22.0, 11.0, if missing { DANGER } else { ACCENT });
+                rrect(x + 8.0, y + 8.0, w, 22.0, 11.0, if missing { DANGER() } else { ACCENT() });
                 self.bold_text(label, x + 16.0, y + 24.0, 13, Color::new(0.08, 0.05, 0.02, 1.0));
             }
             // Favourite star (top right): always for favourites, on hover to add one.
@@ -439,7 +438,7 @@ impl Launcher {
             let star = Rect::new(x + card_w - 34.0, y + 6.0, 28.0, 28.0);
             if fav || hover {
                 draw_circle(star.x + 14.0, star.y + 14.0, 14.0, Color::new(0.0, 0.0, 0.0, 0.55));
-                draw_star(star.x + 14.0, star.y + 14.5, 9.0, if fav { WARN } else { Color::new(1.0, 1.0, 1.0, 0.6) });
+                draw_star(star.x + 14.0, star.y + 14.5, 9.0, if fav { WARN() } else { Color::new(1.0, 1.0, 1.0, 0.6) });
             }
             let mut star_hit = false;
             if (fav || hover) && self.tap(star) {
@@ -452,19 +451,20 @@ impl Launcher {
                 let label = format!("{versions} versions");
                 let w = self.bold_width(&label, 12) + 14.0;
                 rrect(x + 6.0, y + 8.0, w, 20.0, 10.0, Color::new(0.0, 0.0, 0.0, 0.6));
-                self.bold_text(&label, x + 13.0, y + 23.0, 12, TEXT);
+                // On the cover art, so white in either theme.
+                self.bold_text(&label, x + 13.0, y + 23.0, 12, WHITE);
             }
             // Compatibility (bottom left), once checked.
             if let Some(c) = self.meta.get(&path).compat {
-                let (label, color) = if c.unsupported == 0 { ("Runs".to_string(), ACCENT) } else { (format!("Partial: {}", c.unsupported), WARN) };
+                let (label, color) = if c.unsupported == 0 { ("Runs".to_string(), ACCENT()) } else { (format!("Partial: {}", c.unsupported), WARN()) };
                 let w = self.bold_width(&label, 12) + 14.0;
                 rrect(x + 6.0, y + card_h - 26.0, w, 20.0, 10.0, color);
                 self.bold_text(&label, x + 13.0, y + card_h - 11.0, 12, Color::new(0.08, 0.05, 0.02, 1.0));
             }
             let title = self.fit(&self.entries[i].title, 16, card_w);
-            self.text(&title, x, y + card_h + 22.0, 16, if selected { TEXT } else { mix(TEXT, MUTED, 0.3) });
+            self.text(&title, x, y + card_h + 22.0, 16, if selected { TEXT() } else { mix(TEXT(), MUTED(), 0.3) });
             if let Some((secs, _)) = self.totals.get(&path.to_string_lossy().to_lowercase()) {
-                self.text(&format!("{} played", playlog::duration(*secs)), x, y + card_h + 40.0, 13, MUTED);
+                self.text(&format!("{} played", playlog::duration(*secs)), x, y + card_h + 40.0, 13, MUTED());
             }
             if !star_hit && mouse.y > top && self.tap(card) {
                 self.selected = Some(i);
@@ -496,14 +496,14 @@ impl Launcher {
             draw_texture_ex(&t, sw / 2.0 - 36.0, cy - 110.0, WHITE, DrawTextureParams { dest_size: Some(vec2(72.0, 72.0)), ..Default::default() });
         }
         let title = "Your library is empty";
-        self.bold_text(title, (sw - self.bold_width(title, 26)) / 2.0, cy, 26, TEXT);
+        self.bold_text(title, (sw - self.bold_width(title, 26)) / 2.0, cy, 26, TEXT());
         let hint = if cfg!(target_os = "android") {
             "Copy games from KlikCore on your PC: pair it under Devices, then open its Games."
         } else {
             "Add Clickteam Fusion games (.exe, .ccn or .dat), a folder of them, or the ones you own on Steam."
         };
         let hint = self.fit(hint, 16, sw - 48.0);
-        self.text(&hint, (sw - self.text_width(&hint, 16)) / 2.0, cy + 32.0, 16, MUTED);
+        self.text(&hint, (sw - self.text_width(&hint, 16)) / 2.0, cy + 32.0, 16, MUTED());
         let mut buttons: Vec<(&str, MenuAction, bool)> = if cfg!(target_os = "android") {
             vec![("Get games from a PC", MenuAction::GetGames, true), ("Pair a device", MenuAction::Devices, false)]
         } else {
@@ -530,7 +530,7 @@ impl Launcher {
 
     /// The selected game's panel. Returns ACT_PLAY / ACT_SETTINGS when clicked.
     fn draw_details(&mut self, i: usize, x: f32, y: f32, w: f32, h: f32) -> Option<u8> {
-        draw_rectangle(x, y, w, h, CARD);
+        draw_rectangle(x, y, w, h, CARD());
         let path = self.entries[i].path.clone();
         let hero_h = (w * 0.45).round();
         match self.art_for(i).1 {
@@ -552,7 +552,7 @@ impl Launcher {
                 for s in 0..steps {
                     let a = (s as f32 + 1.0) / steps as f32;
                     let sy = y + hero_h - fade + fade * s as f32 / steps as f32;
-                    draw_rectangle(x, sy, w, fade / steps as f32 + 0.5, Color::new(CARD.r, CARD.g, CARD.b, a * a));
+                    draw_rectangle(x, sy, w, fade / steps as f32 + 0.5, Color::new(CARD().r, CARD().g, CARD().b, a * a));
                 }
             }
             None => {
@@ -585,7 +585,7 @@ impl Launcher {
         }
         for l in &lines {
             let l = self.fit(l, 26, inner);
-            self.bold_text(&l, x + pad, ty, 26, TEXT);
+            self.bold_text(&l, x + pad, ty, 26, TEXT());
             ty += 32.0;
         }
         let stats = match self.totals.get(&path.to_string_lossy().to_lowercase()) {
@@ -593,7 +593,7 @@ impl Launcher {
             None => "Not played yet".to_string(),
         };
         let stats = self.fit(&stats, 15, inner);
-        self.text(&stats, x + pad, ty - 6.0, 15, MUTED);
+        self.text(&stats, x + pad, ty - 6.0, 15, MUTED());
         ty += 18.0;
         // Versions of the game: which one shows and plays.
         let versions = self.versions_of(i);
@@ -609,8 +609,8 @@ impl Launcher {
                 }
                 let r = Rect::new(cx, ty - 14.0, cw, 24.0);
                 let on = k == i;
-                rrect(r.x, r.y, r.w, r.h, 12.0, if on { ACCENT } else { BUTTON });
-                self.bold_text(&label, r.x + 10.0, r.y + 17.0, 13, if on { Color::new(0.08, 0.05, 0.02, 1.0) } else { TEXT });
+                rrect(r.x, r.y, r.w, r.h, 12.0, if on { ACCENT() } else { BUTTON() });
+                self.bold_text(&label, r.x + 10.0, r.y + 17.0, 13, if on { Color::new(0.08, 0.05, 0.02, 1.0) } else { TEXT() });
                 if !on && self.tap(r) {
                     chosen = Some(k);
                 }
@@ -627,10 +627,10 @@ impl Launcher {
         // Compatibility, with a button to (re)check.
         let checking = self.checking.contains(&path);
         let (compat, color) = match (checking, self.meta.get(&path).compat) {
-            (true, _) => ("Checking every screen...".to_string(), ACCENT),
-            (_, Some(c)) if c.unsupported == 0 => ("Runs: nothing unsupported".to_string(), ACCENT),
-            (_, Some(c)) => (format!("{} unsupported feature{}", c.unsupported, if c.unsupported == 1 { "" } else { "s" }), WARN),
-            (_, None) => ("Compatibility not checked yet".to_string(), MUTED),
+            (true, _) => ("Checking every screen...".to_string(), ACCENT()),
+            (_, Some(c)) if c.unsupported == 0 => ("Runs: nothing unsupported".to_string(), ACCENT()),
+            (_, Some(c)) => (format!("{} unsupported feature{}", c.unsupported, if c.unsupported == 1 { "" } else { "s" }), WARN()),
+            (_, None) => ("Compatibility not checked yet".to_string(), MUTED()),
         };
         let check = Rect::new(x + w - pad - 70.0, ty - 12.0, 70.0, 26.0);
         let compat = self.fit(&compat, 14, inner - 80.0);
@@ -701,9 +701,9 @@ impl Launcher {
         }
         ty += 66.0;
         if ty + 40.0 < y + h {
-            self.text("Location", x + pad, ty, 13, MUTED);
+            self.text("Location", x + pad, ty, 13, MUTED());
             let p = self.fit_left(&path.display().to_string(), 14, inner);
-            self.text(&p, x + pad, ty + 20.0, 14, mix(TEXT, MUTED, 0.4));
+            self.text(&p, x + pad, ty + 20.0, 14, mix(TEXT(), MUTED(), 0.4));
         }
         result
     }
@@ -922,17 +922,17 @@ impl Launcher {
         if m.y + h > sh - 8.0 {
             m.y = (sh - 8.0 - h).max(8.0);
         }
-        rrect(m.x + 2.0, m.y + 4.0, w, h, 10.0, mix(BG, Color::new(0.0, 0.0, 0.0, 1.0), 0.6));
-        rrect(m.x, m.y, w, h, 10.0, MENU);
+        rrect(m.x + 2.0, m.y + 4.0, w, h, 10.0, mix(BG(), Color::new(0.0, 0.0, 0.0, 1.0), 0.6));
+        rrect(m.x, m.y, w, h, 10.0, MENU());
         let mouse = mouse();
         let mut chosen = None;
         for (k, (label, act)) in m.items.iter().enumerate() {
             let r = Rect::new(m.x + 6.0, m.y + 6.0 + k as f32 * item_h, w - 12.0, item_h);
             let hover = r.contains(mouse);
             if hover {
-                rrect(r.x, r.y, r.w, r.h, 6.0, mix(MENU, TEXT, 0.1));
+                rrect(r.x, r.y, r.w, r.h, 6.0, mix(MENU(), TEXT(), 0.1));
             }
-            let c = if matches!(act, MenuAction::Remove(_)) { DANGER } else { TEXT };
+            let c = if matches!(act, MenuAction::Remove(_)) { DANGER() } else { TEXT() };
             self.text(label, r.x + 14.0, r.y + 25.0, 16, c);
             if hover && is_mouse_button_released(MouseButton::Left) && !m.fresh {
                 chosen = Some(*act);
@@ -964,15 +964,15 @@ impl Launcher {
         if let (Some(s), Some((f, started))) = (&self.busy, self.upscale_progress) {
             let w = (sw - 40.0).min(460.0);
             let r = Rect::new(20.0, sh - 20.0 - 74.0, w, 74.0);
-            rrect(r.x, r.y, r.w, r.h, 14.0, MENU);
+            rrect(r.x, r.y, r.w, r.h, 14.0, MENU());
             let title = self.fit(&self.upscale_title(), 15, w - 120.0);
-            self.bold_text(&title, r.x + 16.0, r.y + 24.0, 15, TEXT);
+            self.bold_text(&title, r.x + 16.0, r.y + 24.0, 15, TEXT());
             let pct = format!("{:.0}%", f * 100.0);
-            self.bold_text(&pct, r.x + w - 16.0 - self.bold_width(&pct, 15), r.y + 24.0, 15, ACCENT);
+            self.bold_text(&pct, r.x + w - 16.0 - self.bold_width(&pct, 15), r.y + 24.0, 15, ACCENT());
             let (bx, by, bw) = (r.x + 16.0, r.y + 36.0, w - 32.0);
-            rrect(bx, by, bw, 8.0, 4.0, BG);
+            rrect(bx, by, bw, 8.0, 4.0, BG());
             if f > 0.0 {
-                rrect(bx, by, (bw * f).max(8.0), 8.0, 4.0, ACCENT);
+                rrect(bx, by, (bw * f).max(8.0), 8.0, 4.0, ACCENT());
             }
             let elapsed = get_time() - started;
             let left = if f > 0.03 && elapsed > 20.0 { (elapsed * (1.0 - f as f64) / f as f64) as u64 } else { u64::MAX };
@@ -983,15 +983,15 @@ impl Launcher {
                 l => format!(" - about {:.1} h left", l as f64 / 3600.0),
             };
             let line = self.fit(&format!("{s}{eta}"), 13, w - 32.0);
-            self.text(&line, r.x + 16.0, r.y + 63.0, 13, MUTED);
+            self.text(&line, r.x + 16.0, r.y + 63.0, 13, MUTED());
             return;
         }
         if let Some(s) = line {
             let s = self.fit(&s, 15, sw - 80.0);
             let w = self.text_width(&s, 15) + 32.0;
             let r = Rect::new(20.0, sh - 20.0 - 36.0, w, 36.0);
-            rrect(r.x, r.y, r.w, r.h, 18.0, MENU);
-            self.text(&s, r.x + 16.0, r.y + 23.0, 15, TEXT);
+            rrect(r.x, r.y, r.w, r.h, 18.0, MENU());
+            self.text(&s, r.x + 16.0, r.y + 23.0, 15, TEXT());
         }
     }
 

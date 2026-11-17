@@ -98,17 +98,63 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-const BG: Color = Color::new(0.055, 0.055, 0.067, 1.0);
+/// Launcher colours: dark or light, with an accent colour (Settings).
+static THEME_LIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static THEME_ACCENT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Accent colours offered in Settings (mint matches the icon).
+const ACCENTS: [(&str, Color); 5] = [
+    ("Mint", Color::new(0.24, 0.86, 0.68, 1.0)),
+    ("Blue", Color::new(0.38, 0.62, 1.0, 1.0)),
+    ("Purple", Color::new(0.66, 0.50, 1.0, 1.0)),
+    ("Orange", Color::new(1.0, 0.62, 0.28, 1.0)),
+    ("Pink", Color::new(1.0, 0.50, 0.72, 1.0)),
+];
+
+fn light() -> bool {
+    THEME_LIGHT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(non_snake_case)]
+fn BG() -> Color {
+    if light() { Color::new(0.93, 0.93, 0.95, 1.0) } else { Color::new(0.055, 0.055, 0.067, 1.0) }
+}
 /// Panels and the details pane.
-const CARD: Color = Color::new(0.095, 0.095, 0.115, 1.0);
-const TEXT: Color = Color::new(0.94, 0.94, 0.96, 1.0);
-const MUTED: Color = Color::new(0.56, 0.57, 0.63, 1.0);
-/// Mint, matching the icon.
-const ACCENT: Color = Color::new(0.24, 0.86, 0.68, 1.0);
-const BUTTON: Color = Color::new(0.16, 0.16, 0.195, 1.0);
+#[allow(non_snake_case)]
+fn CARD() -> Color {
+    if light() { Color::new(1.0, 1.0, 1.0, 1.0) } else { Color::new(0.095, 0.095, 0.115, 1.0) }
+}
+#[allow(non_snake_case)]
+fn TEXT() -> Color {
+    if light() { Color::new(0.09, 0.09, 0.12, 1.0) } else { Color::new(0.94, 0.94, 0.96, 1.0) }
+}
+#[allow(non_snake_case)]
+fn MUTED() -> Color {
+    if light() { Color::new(0.40, 0.41, 0.47, 1.0) } else { Color::new(0.56, 0.57, 0.63, 1.0) }
+}
+#[allow(non_snake_case)]
+fn ACCENT() -> Color {
+    let a = ACCENTS[THEME_ACCENT.load(std::sync::atomic::Ordering::Relaxed) as usize % ACCENTS.len()].1;
+    // A little deeper on white, so text and bars on it stay readable.
+    if light() { Color::new(a.r * 0.85, a.g * 0.85, a.b * 0.85, 1.0) } else { a }
+}
+#[allow(non_snake_case)]
+fn BUTTON() -> Color {
+    if light() { Color::new(0.86, 0.86, 0.89, 1.0) } else { Color::new(0.16, 0.16, 0.195, 1.0) }
+}
 /// Pop-up menus and toasts.
-const MENU: Color = Color::new(0.14, 0.14, 0.17, 1.0);
-const DANGER: Color = Color::new(0.94, 0.38, 0.35, 1.0);
+#[allow(non_snake_case)]
+fn MENU() -> Color {
+    if light() { Color::new(0.98, 0.98, 0.99, 1.0) } else { Color::new(0.14, 0.14, 0.17, 1.0) }
+}
+#[allow(non_snake_case)]
+fn DANGER() -> Color {
+    Color::new(0.94, 0.38, 0.35, 1.0)
+}
+#[allow(non_snake_case)]
+fn WARN() -> Color {
+    if light() { Color::new(0.86, 0.55, 0.10, 1.0) } else { Color::new(0.96, 0.73, 0.30, 1.0) }
+}
 
 const HEADER_H: f32 = 64.0;
 /// Space kept free at the bottom of panels (toasts appear there).
@@ -244,6 +290,9 @@ struct LauncherConfig {
     tests_dir: Option<PathBuf>,
     /// Folders scanned for new games when the launcher starts.
     watch_dirs: Vec<PathBuf>,
+    /// Light theme, and the accent colour (index into `ACCENTS`).
+    light: bool,
+    accent: u8,
 }
 
 impl LauncherConfig {
@@ -272,6 +321,8 @@ impl LauncherConfig {
             tv: 2,
             tests_dir: None,
             watch_dirs: Vec::new(),
+            light: false,
+            accent: 0,
         };
         if let Ok(text) = std::fs::read_to_string(Self::file()) {
             for line in text.lines() {
@@ -287,6 +338,8 @@ impl LauncherConfig {
                     Some(("last_seen_version", v)) => c.last_seen_version = v.trim().to_string(),
                     Some(("tv_mode", v)) => c.tv = v.trim().parse::<u8>().unwrap_or(2).min(2),
                     Some(("tests_dir", v)) if !v.trim().is_empty() => c.tests_dir = Some(PathBuf::from(v.trim())),
+                    Some(("theme", v)) => c.light = v.trim() == "light",
+                    Some(("accent", v)) => c.accent = v.trim().parse::<u8>().unwrap_or(0) % ACCENTS.len() as u8,
                     Some(("watch_dirs", v)) => c.watch_dirs = v.split('|').map(str::trim).filter(|d| !d.is_empty()).map(PathBuf::from).collect(),
                     _ => {}
                 }
@@ -294,12 +347,18 @@ impl LauncherConfig {
         }
         UI_SIZE.store(c.ui_size, std::sync::atomic::Ordering::Relaxed);
         TV_MODE.store(c.tv_active(), std::sync::atomic::Ordering::Relaxed);
+        c.apply_theme();
         c
+    }
+
+    fn apply_theme(&self) {
+        THEME_LIGHT.store(self.light, std::sync::atomic::Ordering::Relaxed);
+        THEME_ACCENT.store(self.accent, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn save(&self) {
         let text = format!(
-            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\ndiscord={}\nupdate_check={}\nui_size={}\nsort={}\nfilter={}\nlast_seen_version={}\ntv_mode={}\ntests_dir={}\nwatch_dirs={}\n",
+            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\ndiscord={}\nupdate_check={}\nui_size={}\nsort={}\nfilter={}\nlast_seen_version={}\ntv_mode={}\ntests_dir={}\nwatch_dirs={}\ntheme={}\naccent={}\n",
             if self.steam_copy { "copy" } else { "link" },
             self.storage.display(),
             if self.steam_self_never { "never" } else { "ask" },
@@ -311,8 +370,11 @@ impl LauncherConfig {
             self.last_seen_version,
             self.tv,
             self.tests_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default(),
-            self.watch_dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join("|")
+            self.watch_dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join("|"),
+            if self.light { "light" } else { "dark" },
+            self.accent
         );
+        self.apply_theme();
         TV_MODE.store(self.tv_active(), std::sync::atomic::Ordering::Relaxed);
         UI_SIZE.store(self.ui_size, std::sync::atomic::Ordering::Relaxed);
         let _ = std::fs::create_dir_all(library::data_dir());
@@ -676,9 +738,9 @@ impl Launcher {
     /// A button; returns true when clicked.
     fn button(&self, r: Rect, label: &str, accent: bool, enabled: bool) -> bool {
         let hover = enabled && !self.block_input && r.contains(mouse());
-        let base = if accent { ACCENT } else { BUTTON };
+        let base = if accent { ACCENT() } else { BUTTON() };
         let color = if !enabled {
-            view::mix(BG, base, 0.45)
+            view::mix(BG(), base, 0.45)
         } else if hover {
             view::mix(base, Color::new(1.0, 1.0, 1.0, 1.0), 0.1)
         } else {
@@ -686,7 +748,7 @@ impl Launcher {
         };
         view::rrect(r.x, r.y, r.w, r.h, 8.0, color);
         let tw = self.bold_width(label, 16);
-        let fg = if !enabled { MUTED } else if accent { Color::new(0.06, 0.16, 0.13, 1.0) } else { TEXT };
+        let fg = if !enabled { MUTED() } else if accent { Color::new(0.06, 0.16, 0.13, 1.0) } else { TEXT() };
         self.bold_text(label, r.x + (r.w - tw) / 2.0, r.y + r.h / 2.0 + 6.0, 16, fg);
         self.tap(r)
     }
@@ -910,7 +972,7 @@ impl Launcher {
 
     fn draw(&mut self) {
         let (sw, sh) = (sw(), sh());
-        clear_background(BG);
+        clear_background(BG());
         // Interface units -> pixels (phones draw everything larger).
         let k = ui_scale();
         if k != 1.0 {
@@ -962,7 +1024,7 @@ impl Launcher {
         // Version in the bottom-left corner (below where toasts appear).
         let version = format!("v{}", update::current_version());
         self.text(&version, 13.0, sh - 7.0, 12, Color::new(0.0, 0.0, 0.0, 0.6));
-        self.text(&version, 12.0, sh - 8.0, 12, Color::new(MUTED.r, MUTED.g, MUTED.b, 0.75));
+        self.text(&version, 12.0, sh - 8.0, 12, Color::new(MUTED().r, MUTED().g, MUTED().b, 0.75));
         self.draw_overlays(sw, sh);
         self.draw_pair_prompt(sw, sh);
         self.end_press();
