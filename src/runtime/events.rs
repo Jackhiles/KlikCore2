@@ -999,6 +999,12 @@ impl Runtime {
                 None => neg,
             };
         }
+        // Layer object: is the layer called NAME shown?
+        if c.object_type >= 32 && c.num == -92 && self.ace_owner_label(c.object_type).eq_ignore_ascii_case("ext:layer") {
+            let name = self.eval_param(c, 0, sel, None).as_string();
+            let shown = self.layer_named(&name).is_some_and(|l| self.layer_visible(l));
+            return shown != neg;
+        }
         if c.object_type >= 32 && c.num <= -81 && self.ace_owner_label(c.object_type).eq_ignore_ascii_case("ext:platform") {
             if let Some(r) = self.pmo_condition(c, neg) {
                 return r;
@@ -1637,6 +1643,14 @@ impl Runtime {
                 return;
             }
             if label.eq_ignore_ascii_case("ext:platform") && self.pmo_action(a, sel, cur) {
+                return;
+            }
+            // Layer object: show (116) / hide (117) a layer by name.
+            if label.eq_ignore_ascii_case("ext:layer") && matches!(a.num, 116 | 117) {
+                let name = self.eval_param(a, 0, sel, cur).as_string();
+                if let Some(layer) = self.layer_named(&name) {
+                    self.layer_fx.entry(layer).or_default().visible = Some(a.num == 116);
+                }
                 return;
             }
             // Layer object: show / hide a layer (31 / 32), its opacity (46) and tint (47), and

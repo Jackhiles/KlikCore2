@@ -381,6 +381,17 @@ impl Runtime {
         self.layer_fx.get(&layer).copied().unwrap_or_default()
     }
 
+    /// Is layer `layer` (0-based) shown: as the Layer object last set it, else as it starts.
+    pub fn layer_visible(&self, layer: usize) -> bool {
+        let start = self.frame().layers.get(layer).is_none_or(|l| l.flags & crate::ctf_loader::frame::Layer::VISIBLE != 0);
+        self.layer_fx.get(&layer).and_then(|f| f.visible).unwrap_or(start)
+    }
+
+    /// The (0-based) index of the current frame's layer called `name` (any case).
+    pub fn layer_named(&self, name: &str) -> Option<usize> {
+        self.frame().layers.iter().position(|l| l.name.eq_ignore_ascii_case(name.trim()))
+    }
+
     pub fn frame(&self) -> &Frame {
         &self.game.frames[self.frame_index]
     }
