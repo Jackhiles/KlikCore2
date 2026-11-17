@@ -11,6 +11,7 @@ pub mod ext;
 pub mod files;
 pub mod save_sync;
 pub mod input;
+pub mod pmo;
 pub mod instance;
 pub mod scenario;
 pub mod script;
@@ -218,6 +219,15 @@ pub struct Runtime {
     bullets: HashSet<u32>,
     /// Instances currently using platform movement (moved with collision handling).
     platformers: HashSet<u32>,
+    /// Platform Movement objects, by object handle.
+    pmo: HashMap<u16, pmo::Pmo>,
+    /// The Platform Movement object whose collision test is running.
+    pmo_testing: Option<u16>,
+    /// Named timer events ("after N ms, signal NAME"): lower-cased name, frame time it
+    /// fires at, and how many more times it repeats.
+    named_timers: Vec<(String, f64, f64, i32)>,
+    /// Named timer events that fired this tick.
+    timers_fired: HashSet<String>,
     /// Conditions/actions/expressions encountered but not implemented, with hit counts.
     pub unimplemented: RefCell<BTreeMap<String, u64>>,
     /// Sound files played by name ("play sample file"): handle FILE_SOUND_BASE + index.
@@ -341,6 +351,10 @@ impl Runtime {
             qualifiers,
             bullets: HashSet::default(),
             platformers: HashSet::default(),
+            pmo: HashMap::default(),
+            pmo_testing: None,
+            named_timers: Vec::new(),
+            timers_fired: HashSet::default(),
             unimplemented: RefCell::new(BTreeMap::new()),
             file_sounds: Vec::new(),
             launch_requests: Vec::new(),
@@ -383,6 +397,9 @@ impl Runtime {
         self.layer_fx.clear();
         self.invalidate_index();
         self.bullets.clear();
+        self.pmo.clear();
+        self.named_timers.clear();
+        self.timers_fired.clear();
         self.next_z = 0;
         self.min_z = 0;
         self.tick = 0;
@@ -618,6 +635,10 @@ impl Runtime {
         let all_controls = self.controls.clone();
         let controls = all_controls[0].clone();
         self.update_platforms(input, &controls);
+        if !self.pmo.is_empty() {
+            self.update_pmo(input);
+        }
+        self.fire_named_timers();
         let game = &self.game;
         for inst in self.instances.iter_mut().filter(|i| !i.destroyed) {
             let Some(obj) = game.object(inst.oi) else {
@@ -659,6 +680,7 @@ impl Runtime {
         self.triggered_pass = events::Trigger::None;
         self.run_events(input, None);
         self.group_just_activated.clear();
+        self.timers_fired.clear();
         for w in self.instances.iter_mut().filter_map(|i| i.widget.as_mut()) {
             w.clear_events();
         }
@@ -1047,6 +1069,32 @@ impl Runtime {
             }
             self.global_strings[i] = s;
         }
+    }
+
+    /// Named timer events that are due by this tick move to `timers_fired`.
+    fn fire_named_timers(&mut self) {
+        let now = self.timer_ms;
+        let fired = &mut self.timers_fired;
+        self.named_timers.retain_mut(|(name, at, every, left)| {
+            if *at > now {
+                return true;
+            }
+            fired.insert(name.clone());
+            if *left > 0 {
+                *left -= 1;
+                *at += every.max(1.0);
+                return true;
+            }
+            false
+        });
+    }
+
+    /// Start (or restart) a named timer event: `name` fires after `ms`, then `repeats`
+    /// more times at the same interval.
+    pub(crate) fn start_named_timer(&mut self, name: &str, ms: f64, repeats: i32) {
+        let name = name.to_lowercase();
+        self.named_timers.retain(|t| t.0 != name);
+        self.named_timers.push((name, self.timer_ms + ms, ms, repeats.max(0)));
     }
 
     pub fn loop_index(&self, name: &str) -> i32 {

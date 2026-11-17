@@ -65,7 +65,12 @@ Extension objects (`.mfx` files) are reimplemented natively in `src/runtime/ext/
 - **Global Store X** (`gstorex`): the integer store, with set / add / subtract / set range / clear, compare, and save / load in its binary file format.
 - **Array** (`kcarray`): numeric or text arrays in up to three dimensions (growing on write), indexes, read / write
   at X / X,Y / X,Y,Z, clear, and load / save through the save sandbox.
-- **Control X** (`ctrlx`): "key pressed" by key name, for games that let players rebind keys.
+- **Control X** (`ctrlx`): "key pressed" by key name or key code, and "any key pressed", for games that let players
+  rebind keys.
+- **Platform Movement object** (`Platform`): moves its object as a platformer character with the stored speeds,
+  acceleration, gravity, jump strength and hold, step-up and slope settings; the game's own "obstacle test" events
+  decide what is solid. Walk left / right, jump, change the maximum speed, pause / resume, and the on-ground,
+  jumping, falling and moving conditions are supported.
 - **File** (`kcfile`): file / folder exists, create a folder or an empty file (in the save sandbox), and the user's Documents folder.
 - **Joypad object** (`joystick`): reported as a connected controller with nothing pressed, which keeps such games'
   keyboard controls working; gamepads still work through KlikCore's own controller support.

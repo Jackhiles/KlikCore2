@@ -1,9 +1,12 @@
 //! "Control X" (ctrlx.mfx): keyboard tests by key name, so games can let players rebind
 //! keys by storing names like "X", "Space" or "Down".
 //!
-//! Implemented: condition 0, "key is pressed (by name)". Other conditions answer false.
+//! Implemented: condition 0, "key is pressed (by name)"; 5, the same by virtual-key code;
+//! 4 and 9, "any key is pressed" (inferred from use: games test them for keyboard activity).
+//! Other conditions answer false. Actions ("force keys up" and the like) change nothing:
+//! a key is down here only while the player holds it.
 
-use super::{arg_s, Extension};
+use super::{arg_i, arg_s, Extension};
 use crate::ctf_loader::events::Comparison;
 use crate::runtime::files::SaveFs;
 use crate::runtime::value::Value;
@@ -99,6 +102,8 @@ impl Extension for ControlX {
                 // Shift / Ctrl / Alt by name match either side.
                 keys.contains(&vk) || matches!(vk, 0x10..=0x12) && keys.iter().any(|k| (0xA0..=0xA5).contains(k) && (k - 0xA0) / 2 == vk - 0x10)
             })),
+            4 | 9 => Some(self.keys.borrow().iter().any(|&k| k > 6)),
+            5 => Some(self.keys.borrow().contains(&(arg_i(args, 0).clamp(0, 255) as u16))),
             _ => Some(false),
         }
     }

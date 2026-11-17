@@ -573,6 +573,72 @@ impl Runtime {
         }
     }
 
+    /// Run (now) the events of Platform Movement object `oi` that test for obstacles,
+    /// skipping those in disabled groups.
+    pub(super) fn run_pmo_tests(&mut self, oi: u16, input: &Input) {
+        let events = self.events.clone();
+        let mut stack: Vec<bool> = Vec::new();
+        for (gi, group) in events.groups.iter().enumerate() {
+            if let Some(first) = group.conditions.first() {
+                if cond_is(first, SYS, -10) {
+                    let enabled = match first.params.first().map(|p| &p.value) {
+                        Some(Param::Group { id, .. }) => self.group_enabled(*id),
+                        _ => true,
+                    };
+                    let parent = stack.last().copied().unwrap_or(true);
+                    stack.push(parent && enabled);
+                    continue;
+                }
+                if cond_is(first, SYS, -11) {
+                    stack.pop();
+                    continue;
+                }
+            }
+            if !stack.last().copied().unwrap_or(true) {
+                continue;
+            }
+            if group.conditions.iter().any(|c| c.object_info == oi && c.object_type >= 32 && c.num == -81) {
+                self.run_group(gi, group, input);
+            }
+        }
+    }
+
+    /// Platform Movement object conditions: -81 obstacle test (true only while testing),
+    /// -83 on the ground, -84 jumping, -85 falling, -87 moving.
+    fn pmo_condition(&mut self, c: &Ace, neg: bool) -> Option<bool> {
+        let oi = c.object_info;
+        let p = self.pmo(oi);
+        let r = match c.num {
+            -81 => return Some(self.pmo_testing == Some(oi)),
+            -83 => p.on_ground,
+            -84 => p.jumping(),
+            -85 => p.falling(),
+            -87 => p.moving(),
+            _ => return None,
+        };
+        Some(r != neg)
+    }
+
+    /// Platform Movement object actions (see `pmo.rs`).
+    fn pmo_action(&mut self, a: &Ace, sel: &Sel, cur: Option<(u16, usize)>) -> bool {
+        let oi = a.object_info;
+        let v = matches!(a.num, 88..=96).then(|| self.eval_param(a, 0, sel, cur).as_f64());
+        let target = if a.num == 82 { Self::param_object(a, 0) } else { None };
+        let p = self.pmo(oi);
+        match a.num {
+            80 => p.overlap = true,
+            82 => p.target = target.or(p.target),
+            83 => p.right = true,
+            84 => p.left = true,
+            85 => p.jump_pressed = true,
+            88 => p.max_vx = v.unwrap_or(p.max_vx),
+            97 => p.paused = true,
+            98 => p.paused = false,
+            _ => return false,
+        }
+        true
+    }
+
     fn run_group(&mut self, gi: usize, group: &EventGroup, input: &Input) {
         // Split on OR conditions; the first block that holds wins.
         let mut blocks: Vec<Vec<(usize, &Ace)>> = vec![Vec::new()];
@@ -707,6 +773,11 @@ impl Runtime {
             (GAME, -1) => self.tick == 0,
             (GAME, -2) => self.end_of_frame_pass,
             (GAME, -4) => false,
+            // "On timer event NAME": a named timer started by action 1 has fired.
+            (TIMER, -6) => {
+                let name = self.eval_param(c, 0, sel, None).as_string().to_lowercase();
+                self.timers_fired.contains(&name)
+            }
             (TIMER, -1) => self.timer_ms > self.eval_param(c, 0, sel, None).as_f64(),
             (TIMER, -2) => self.timer_ms < self.eval_param(c, 0, sel, None).as_f64(),
             (TIMER, -3) | (TIMER, -7) => {
@@ -927,6 +998,11 @@ impl Runtime {
                 }
                 None => neg,
             };
+        }
+        if c.object_type >= 32 && c.num <= -81 && self.ace_owner_label(c.object_type).eq_ignore_ascii_case("ext:platform") {
+            if let Some(r) = self.pmo_condition(c, neg) {
+                return r;
+            }
         }
         if c.object_type >= 32 && c.num <= -81 && self.ace_owner_label(c.object_type).eq_ignore_ascii_case("ext:multipletouch") {
             return self.touch_condition(c, sel, input, neg);
@@ -1289,6 +1365,16 @@ impl Runtime {
                 }
             }
             (TIMER, 0) => self.timer_ms = self.eval_param(a, 0, sel, None).as_f64(),
+            // Start a named timer event: after the time (param 0), "on timer event NAME"
+            // (param 1) fires; the time's loop count repeats it.
+            (TIMER, 1) => {
+                let (ms, loops) = match a.params.first().map(|p| &p.value) {
+                    Some(Param::Time { ms, loops }) => (*ms as f64, *loops),
+                    _ => (self.eval_param(a, 0, sel, None).as_f64(), 0),
+                };
+                let name = self.eval_param(a, 1, sel, None).as_string();
+                self.start_named_timer(&name, ms, loops);
+            }
             (CREATE, 0) => {
                 if let Some(Param::Create {
                     position,
@@ -1548,6 +1634,9 @@ impl Runtime {
             let label = self.ace_owner_label(a.object_type);
             // Select object: its other action (no parameters) has nothing to do here.
             if label.eq_ignore_ascii_case("ext:select") {
+                return;
+            }
+            if label.eq_ignore_ascii_case("ext:platform") && self.pmo_action(a, sel, cur) {
                 return;
             }
             // Layer object: show / hide a layer (31 / 32), its opacity (46) and tint (47), and
