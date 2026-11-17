@@ -340,7 +340,7 @@ Game files never go in this repository, so test scripts live next to your games.
 ```text
 game ../games/My Game.exe
 press 50 13            # Enter at tick 50
-click 400 320 240      # left-click at window position (320, 240) at tick 400 (also `mouse`, `rclick`, `hold`)
+click 400 320 240      # left-click at window position (320, 240) at tick 400 (also `mouse`, `rclick`, `hold`; `dclick` completes a double click)
 run 900
 expect_frame title     # by name or index; also expect_visited, expect_save, expect_no_unimplemented
 expect "door" value 0 = 1   # object state: counter | value N | x | y | visible

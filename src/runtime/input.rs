@@ -25,6 +25,32 @@ pub struct Input {
     pub typed: Vec<char>,
 }
 
+/// Tells double clicks apart: a click soon after the previous one with the same button,
+/// close to where it was, is a double click (as Windows decides). A third click starts over.
+#[derive(Debug, Clone, Default)]
+pub struct DoubleClicks {
+    /// Per button: time (seconds) and position of the last single click.
+    last: [Option<(f64, (f32, f32))>; 3],
+}
+
+impl DoubleClicks {
+    /// Windows' default double-click time.
+    pub const TIME: f64 = 0.5;
+    /// How far apart (in window pixels) the two clicks may be.
+    pub const DISTANCE: f32 = 6.0;
+
+    /// A click of `button` at time `now` (seconds) and window position `at`; true if it
+    /// completes a double click.
+    pub fn click(&mut self, button: usize, now: f64, at: (f32, f32)) -> bool {
+        let Some(slot) = self.last.get_mut(button) else { return false };
+        let double = slot.is_some_and(|(t, p)| {
+            now - t <= Self::TIME && (at.0 - p.0).abs() <= Self::DISTANCE && (at.1 - p.1).abs() <= Self::DISTANCE
+        });
+        *slot = if double { None } else { Some((now, at)) };
+        double
+    }
+}
+
 impl Input {
     /// Clear the edge-triggered parts after a tick consumed them.
     pub fn consume_edges(&mut self) {
@@ -33,5 +59,23 @@ impl Input {
         self.double_clicked = [false; 3];
         self.wheel = 0.0;
         self.typed.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DoubleClicks;
+
+    #[test]
+    fn double_clicks_need_two_quick_close_clicks() {
+        let mut d = DoubleClicks::default();
+        assert!(!d.click(0, 1.0, (10.0, 10.0)));
+        assert!(d.click(0, 1.3, (12.0, 11.0)));
+        // A third click is a new first click.
+        assert!(!d.click(0, 1.4, (12.0, 11.0)));
+        // Too slow, too far, or another button.
+        assert!(!d.click(0, 2.0, (12.0, 11.0)));
+        assert!(!d.click(0, 2.1, (40.0, 11.0)));
+        assert!(!d.click(2, 2.2, (40.0, 11.0)));
     }
 }

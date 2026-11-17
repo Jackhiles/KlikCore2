@@ -650,36 +650,8 @@ fn run_probe(game: ctf_loader::GameData, save_dir: Option<PathBuf>) {
 }
 
 fn run_sweep(game: ctf_loader::GameData, ticks: u64, save_dir: Option<PathBuf>) {
-    let frames = game.frames.len();
     let save_dir = save_dir.unwrap_or_else(|| std::env::temp_dir().join("klikcore-sweep"));
-    let mut rt = runtime::Runtime::with_save_root(game, 0, Some(save_dir));
-    let t = Instant::now();
-    for f in 0..frames {
-        rt.load_frame(f);
-        let mut input = runtime::Input::default();
-        for n in 0..ticks {
-            if n % 90 == 30 {
-                input.pressed.insert(13);
-                input.clicked[0] = true;
-            }
-            rt.tick(&input);
-            input.consume_edges();
-            if rt.finished {
-                rt.finished = false;
-            }
-        }
-    }
-    println!(
-        "swept {frames} frames x {ticks} ticks in {:.2?}",
-        t.elapsed()
-    );
-    let un = rt.unimplemented.borrow();
-    let mut v: Vec<_> = un.iter().collect();
-    v.sort_by(|a, b| b.1.cmp(a.1));
-    println!("unimplemented features hit ({}):", v.len());
-    for (k, n) in v.iter().take(30) {
-        println!("  {n:8}  {k}");
-    }
+    print!("{}", runtime::scenario::sweep(game, ticks, save_dir));
 }
 
 fn run_scenarios(target: &std::path::Path) -> Result<()> {

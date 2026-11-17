@@ -121,6 +121,31 @@ pub(crate) fn http_get(url: &str) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Open a web page in the browser.
+pub(crate) fn open_url(url: &str) {
+    unsafe {
+        let env = attach_jni_env();
+        let u = jstring(env, url);
+        call_void_method!(env, ACTIVITY, "openUrl", "(Ljava/lang/String;)V", u);
+        (**env).DeleteLocalRef.unwrap()(env, u as _);
+    }
+}
+
+/// Copy `file` into the phone's Download/KlikCore folder (the app's external folder on
+/// Android 9 and older) as `name`; returns where it went.
+pub(crate) fn save_to_downloads(file: &Path, name: &str, mime: &str) -> Option<String> {
+    unsafe {
+        let env = attach_jni_env();
+        let (p, n, m) = (jstring(env, &file.to_string_lossy()), jstring(env, name), jstring(env, mime));
+        let s = call_object_method!(env, ACTIVITY, "saveToDownloads", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", p, n, m);
+        for r in [p, n, m] {
+            (**env).DeleteLocalRef.unwrap()(env, r as _);
+        }
+        let place = string_call(env, s);
+        (!place.is_empty()).then_some(place)
+    }
+}
+
 /// Start downloading and installing the APK at `url` (see [`update_status`]).
 pub(crate) fn install_update(url: &str) {
     unsafe {

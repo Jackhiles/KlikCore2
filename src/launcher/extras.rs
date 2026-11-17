@@ -54,6 +54,14 @@ fn wrap(l: &Launcher, s: &str, size: u16, max_w: f32) -> Vec<String> {
     out
 }
 
+/// Open a web page in the browser.
+fn open_url(url: &str) {
+    #[cfg(target_os = "android")]
+    crate::android::open_url(url);
+    #[cfg(not(target_os = "android"))]
+    open_path(Path::new(url));
+}
+
 fn open_path(p: &Path) {
     let opener = if cfg!(windows) { "explorer" } else if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     let _ = std::process::Command::new(opener).arg(p).spawn();
@@ -395,17 +403,29 @@ impl Launcher {
             let stem: String = e.title.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).collect();
             let path = dir.join(format!("{} {stamp}.zip", stem.trim()));
             let r = std::fs::create_dir_all(&dir).and_then(|_| write_zip(&path, &files)).map_err(|e| e.to_string());
+            // Android: the app's own folder can't be opened, so the zip is copied where the
+            // player (and the browser, to attach it) can find it.
+            #[cfg(target_os = "android")]
+            let shown = r.is_ok().then(|| {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                crate::android::save_to_downloads(&path, &name, "application/zip")
+            }).flatten();
+            #[cfg(not(target_os = "android"))]
+            let shown: Option<String> = None;
             if r.is_ok() {
-                open_path(&dir);
+                if !cfg!(target_os = "android") {
+                    open_path(&dir);
+                }
                 if issue {
                     let title = url_encode(&format!("Problem in {}", e.title));
                     let body = url_encode(&format!("What happens:\n\nWhat should happen:\n\n(Attach the report zip: {})\n\n{system}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
-                    open_path(Path::new(&format!("https://github.com/Jackhiles/KlikCore2/issues/new?title={title}&body={body}")));
+                    open_url(&format!("https://github.com/Jackhiles/KlikCore2/issues/new?title={title}&body={body}"));
                 }
             }
-            let _ = tx.send(Msg::Done(match r {
-                Ok(()) => format!("Report saved: {}", path.display()),
-                Err(err) => format!("Could not save the report: {err}"),
+            let _ = tx.send(Msg::Done(match (r, shown) {
+                (Ok(()), Some(place)) => format!("Report saved to {place}"),
+                (Ok(()), None) => format!("Report saved: {}", path.display()),
+                (Err(err), _) => format!("Could not save the report: {err}"),
             }));
         });
     }
@@ -446,7 +466,7 @@ impl Launcher {
         self.compat_batch = Some(CompatBatch { total: paths.len(), ..Default::default() });
         self.say(format!("Checking {} games (each runs every screen for a few seconds)...", paths.len()));
         let queue = std::sync::Arc::new(std::sync::Mutex::new(paths));
-        for _ in 0..2 {
+        for _ in 0..if cfg!(target_os = "android") { 1 } else { 2 } {
             let (queue, tx) = (queue.clone(), self.tx.clone());
             std::thread::spawn(move || loop {
                 let Some(p) = queue.lock().ok().and_then(|mut q| q.pop()) else { break };
@@ -1051,6 +1071,24 @@ pub(super) struct CompatBatch {
 
 /// Run every frame of a game for a while in a separate KlikCore process (so a crash can't
 /// take the launcher down) and read the result.
+#[cfg(target_os = "android")]
+fn sweep(game: &Path) -> Option<super::meta::Compat> {
+    // No separate processes on Android: load and run the game here (in the worker thread),
+    // catching a crash so it only fails this check.
+    let game = game.to_path_buf();
+    let text = std::panic::catch_unwind(move || {
+        let data = crate::ctf_loader::GameData::load(&game).ok()?;
+        let dir = crate::runtime::files::data_root().join("compat-check");
+        let text = crate::runtime::scenario::sweep(data, 600, dir.clone());
+        let _ = std::fs::remove_dir_all(&dir);
+        Some(text)
+    })
+    .ok()
+    .flatten()?;
+    super::meta::parse_sweep(&text)
+}
+
+#[cfg(not(target_os = "android"))]
 fn sweep(game: &Path) -> Option<super::meta::Compat> {
     let out = std::env::current_exe().and_then(|exe| {
         let mut c = std::process::Command::new(exe);

@@ -37,6 +37,7 @@ impl Recorder {
         }
         for (b, cmd) in [(0usize, "click"), (2, "rclick")] {
             if input.clicked[b] {
+                let cmd = if b == 0 && input.double_clicked[0] { "dclick" } else { cmd };
                 self.lines.push(format!("{cmd} {t} {} {}", m.0, m.1));
             }
         }

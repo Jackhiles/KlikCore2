@@ -8,6 +8,7 @@
 //! hold 100 160 39      # hold VK 39 (Right) from tick 100 until 160
 //! mouse 200 320 240    # move the mouse to (320, 240) at tick 200
 //! click 210 320 240    # move there and left-click at tick 210 (`rclick` for the right button)
+//! dclick 220 320 240   # the same, and that click completes a double click
 //! type 250 Hello      # type text (into the focused edit box) at tick 250
 //! shot 300 menu.png    # screenshot mode only: capture at tick 300
 //! ```
@@ -19,7 +20,8 @@ enum Event {
     Press(u64, u16),
     Hold(u64, u64, u16),
     Mouse(u64, f64, f64),
-    Click(u64, f64, f64, usize),
+    /// Tick, position, button, and whether it completes a double click.
+    Click(u64, f64, f64, usize, bool),
     Type(u64, String),
 }
 
@@ -76,10 +78,10 @@ impl InputScript {
                 let n = nums(3)?;
                 self.events.push(Event::Mouse(n[0] as u64, n[1], n[2]));
             }
-            "click" | "rclick" => {
+            "click" | "rclick" | "dclick" => {
                 let n = nums(3)?;
-                let button = if cmd == "click" { 0 } else { 2 };
-                self.events.push(Event::Click(n[0] as u64, n[1], n[2], button));
+                let button = if cmd == "rclick" { 2 } else { 0 };
+                self.events.push(Event::Click(n[0] as u64, n[1], n[2], button, cmd == "dclick"));
             }
             "type" => {
                 let (t, text) = rest.split_once(char::is_whitespace).ok_or("`type` needs a tick and text")?;
@@ -114,7 +116,7 @@ impl InputScript {
             .events
             .iter()
             .filter_map(|e| match *e {
-                Event::Mouse(t, x, y) | Event::Click(t, x, y, _) if t <= tick => Some((t, x, y)),
+                Event::Mouse(t, x, y) | Event::Click(t, x, y, ..) if t <= tick => Some((t, x, y)),
                 _ => None,
             })
             .max_by_key(|m| m.0);
@@ -149,9 +151,10 @@ impl InputScript {
                         input.typed.extend(text.chars());
                     }
                 }
-                Event::Click(t, _, _, b) => {
+                Event::Click(t, _, _, b, double) => {
                     if t == tick {
                         input.clicked[b] = true;
+                        input.double_clicked[b] = double;
                     }
                     if (t..t + TAP_TICKS).contains(&tick) {
                         input.down.insert([1u16, 4, 2][b]);

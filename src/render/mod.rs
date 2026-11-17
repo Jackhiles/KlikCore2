@@ -920,6 +920,7 @@ struct Viewer {
     running: bool,
     tick_acc: f64,
     input: Input,
+    double_clicks: crate::runtime::input::DoubleClicks,
     /// Per-layer visibility override for the current frame (debug toggles).
     layer_off: Vec<bool>,
     drag_from: Option<(Vec2, Vec2)>,
@@ -1127,6 +1128,13 @@ impl Viewer {
             }
             None => Vec2::from(mouse_position()),
         };
+        // A second quick click in the same place is also a double click.
+        let now = get_time();
+        for b in 0..3 {
+            if self.input.clicked[b] && self.double_clicks.click(b, now, (pointer.x, pointer.y)) {
+                self.input.double_clicked[b] = true;
+            }
+        }
         let (origin, size) = self.present();
         // Like the original runtime, the pointer's frame position is updated when the
         // pointer moves (with the scroll at that moment), not every tick: an object that
@@ -2117,6 +2125,7 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         running: opts.run_events,
         tick_acc: 0.0,
         input: Input::default(),
+        double_clicks: Default::default(),
         layer_off: Vec::new(),
         drag_from: None,
         settings: opts.settings.clone(),

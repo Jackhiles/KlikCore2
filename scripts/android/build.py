@@ -370,6 +370,60 @@ SHORTCUTS = """    String launchGame = null;
 """
 
 
+# Reports: open the issue page in the browser, and put the report zip where the player
+# can find it (Download/KlikCore through MediaStore on Android 10+, which needs no
+# permission; the app's external folder before that).
+FILES = """    public void openUrl(String url) {
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            Log.w("KlikCore", "openUrl: " + e);
+        }
+    }
+
+    public String saveToDownloads(String path, String name, String mime) {
+        try {
+            java.io.InputStream in = new java.io.FileInputStream(path);
+            java.io.OutputStream out;
+            String place;
+            if (Build.VERSION.SDK_INT >= 29) {
+                android.content.ContentValues v = new android.content.ContentValues();
+                v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime);
+                v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/KlikCore");
+                android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                if (uri == null) {
+                    in.close();
+                    return "";
+                }
+                out = getContentResolver().openOutputStream(uri);
+                place = "Download/KlikCore/" + name;
+            } else {
+                java.io.File dir = new java.io.File(getExternalFilesDir(null), "reports");
+                dir.mkdirs();
+                java.io.File f = new java.io.File(dir, name);
+                out = new java.io.FileOutputStream(f);
+                place = f.getAbsolutePath();
+            }
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+            }
+            in.close();
+            out.close();
+            return place;
+        } catch (Exception e) {
+            Log.w("KlikCore", "saveToDownloads: " + e);
+            return "";
+        }
+    }
+
+"""
+
+
 # Self-update: Rust finds a newer release (httpGet: Android has no curl, and Rust has no
 # TLS here); installUpdate downloads the APK into a PackageInstaller session, and Android
 # asks the player to confirm. The result comes back to the activity as an intent.
@@ -528,7 +582,7 @@ def write_java(src_dir, out_dir):
         "    protected void onResume() {\n        super.onResume();",
         "    protected void onResume() {\n        super.onResume();\n        hideSystemBars();",
     )
-    activity = activity.replace(anchors[1], IMMERSIVE + SHORTCUTS + UPDATER + anchors[1])
+    activity = activity.replace(anchors[1], IMMERSIVE + SHORTCUTS + UPDATER + FILES + anchors[1])
     # Back always goes to KlikCore (as the key it is), never to Android's default (which
     # put the app in the background mid-game when the view didn't have focus). The
     # launcher leaves the app itself (goHome) when Back is pressed on the library.

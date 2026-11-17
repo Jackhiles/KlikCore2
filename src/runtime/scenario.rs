@@ -77,6 +77,39 @@ impl Driver {
     }
 }
 
+/// Compatibility sweep: every frame for `ticks` ticks (pressing Enter and clicking now
+/// and then), then the unsupported features hit overall, as text (`--sweep` prints it;
+/// the launcher reads it with `parse_sweep`).
+pub fn sweep(game: crate::ctf_loader::GameData, ticks: u64, save_dir: std::path::PathBuf) -> String {
+    let frames = game.frames.len();
+    let mut rt = Runtime::with_save_root(game, 0, Some(save_dir));
+    let t = std::time::Instant::now();
+    for f in 0..frames {
+        rt.load_frame(f);
+        let mut input = Input::default();
+        for n in 0..ticks {
+            if n % 90 == 30 {
+                input.pressed.insert(13);
+                input.clicked[0] = true;
+            }
+            rt.tick(&input);
+            input.consume_edges();
+            if rt.finished {
+                rt.finished = false;
+            }
+        }
+    }
+    let mut out = format!("swept {frames} frames x {ticks} ticks in {:.2?}\n", t.elapsed());
+    let un = rt.unimplemented.borrow();
+    let mut v: Vec<_> = un.iter().collect();
+    v.sort_by(|a, b| b.1.cmp(a.1));
+    out += &format!("unimplemented features hit ({}):\n", v.len());
+    for (k, n) in v.iter().take(30) {
+        out += &format!("  {n:8}  {k}\n");
+    }
+    out
+}
+
 /// Run one scenario file.
 pub fn run_scenario(path: &Path) -> Result<ScenarioResult> {
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
