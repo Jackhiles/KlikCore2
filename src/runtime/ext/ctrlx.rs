@@ -94,6 +94,26 @@ pub fn name_for_vk(vk: u16) -> String {
     }
 }
 
+/// "Key Object" (`Key`): condition 0, the key with this virtual-key code is down
+/// (inferred from use; games test the extra mouse buttons, codes 5 and 6, with it).
+pub struct KeyObject {
+    pub keys: Keys,
+}
+
+impl Extension for KeyObject {
+    fn condition(&self, idx: usize, args: &[Value], _cmp: Comparison, _fs: &SaveFs) -> Option<bool> {
+        (idx == 0).then(|| self.keys.borrow().contains(&(arg_i(args, 0).clamp(0, 255) as u16)))
+    }
+
+    fn action(&mut self, _idx: usize, _args: &[Value], _fs: &SaveFs) -> bool {
+        true
+    }
+
+    fn expression(&self, _idx: usize, _args: &[Value], _fs: &SaveFs) -> Option<Value> {
+        None
+    }
+}
+
 impl Extension for ControlX {
     fn condition(&self, idx: usize, args: &[Value], _cmp: Comparison, _fs: &SaveFs) -> Option<bool> {
         match idx {

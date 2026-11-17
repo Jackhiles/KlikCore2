@@ -8,7 +8,8 @@
 //!   piece (from 0), split at the delimiters stored in the object (UTF-16, zero-separated).
 //! - **Advanced Direction** (`AdvDir`): expression 1 (x1, y1, x2, y2) is the direction in
 //!   degrees from the first point to the second (0 = right, counter-clockwise, y down);
-//!   expressions 10 / 11 (direction, distance) are the x / y offsets.
+//!   expressions 10 / 11 (direction, distance) are the x / y offsets; 4 (x1, y1, x2, y2)
+//!   is the distance between the points.
 //! - **The Big Box** (`bigbox`): action 22 opens a web address.
 //! - **Font Embed** (`fontembed`): action 0 loads a font file so text can use it by name.
 
@@ -106,6 +107,7 @@ impl Extension for AdvDir {
         let a = |i| arg_f(args, i);
         Some(match idx {
             1 => Value::Float(direction_deg(a(0), a(1), a(2), a(3))),
+            4 => Value::Float((a(2) - a(0)).hypot(a(3) - a(1))),
             10 => Value::Float(a(0).to_radians().cos() * a(1)),
             11 => Value::Float(-a(0).to_radians().sin() * a(1)),
             _ => return None,

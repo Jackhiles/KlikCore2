@@ -71,6 +71,8 @@ Extension objects (`.mfx` files) are reimplemented natively in `src/runtime/ext/
   acceleration, gravity, jump strength and hold, step-up and slope settings; the game's own "obstacle test" events
   decide what is solid. Walk left / right, jump, change the maximum speed, pause / resume, and the on-ground,
   jumping, falling and moving conditions are supported.
+- **Ini++ v1.5** (`INI++15`): load a file, set a value (group, item), read a value with a default; changes are saved
+  straight away. **Key Object** (`Key`): a key (by virtual-key code) is down.
 - **File** (`kcfile`): file / folder exists, create a folder or an empty file (in the save sandbox), and the user's Documents folder.
 - **Joypad object** (`joystick`): reported as a connected controller with nothing pressed, which keeps such games'
   keyboard controls working; gamepads still work through KlikCore's own controller support.
@@ -82,10 +84,12 @@ Extension objects (`.mfx` files) are reimplemented natively in `src/runtime/ext/
   touch position), so touch-controlled PC ports can be clicked. Mobile helpers (`AndroidPlus`) are accepted.
 - **Encryption** (`Encryption`): encode / decode pass the text through (KlikCore's own saves read back; saves the
   original runtime encoded don't). **String Parser** (`parser`): set the text, get the n-th piece. **Advanced
-  Direction** (`AdvDir`): direction between two points, x / y offsets of a direction and distance. **Select**
-  (`Select`): pick the object with the lowest alterable value. **Layer** (`Layer`): show / hide a layer, its opacity
-  and tint. **Font Embed** (`fontembed`): load a font file so text can use it by name. **The Big Box** (`bigbox`):
-  open a web address. Screen capture, image tools, sliders and Steam's API are accepted and do nothing.
+  Direction** (`AdvDir`): direction and distance between two points, x / y offsets of a direction and distance. **Select**
+  (`Select`): pick the object with the lowest alterable value. **Layer** (`Layer`): show / hide a layer (by number or name), is a layer
+  shown, its opacity, tint and offset, and sorting objects by Y. **Font Embed** (`fontembed`): load a font file so text can use it by name. **The Big Box** (`bigbox`):
+  open a web address. Screen capture, image tools, sliders, Steam's API, window scaling (`ultimatefullscreen`) and extra
+  controller objects (`XBOXGamepad`, `Joystick2`: no controller; KlikCore's own controller support still works) are
+  accepted and do nothing.
 - Text in Japanese, Chinese or Korean is drawn with an installed font that has those characters when the game's font
   doesn't (as Windows does), e.g. Yu Gothic / Meiryo on Windows, Noto Sans CJK on Linux.
 - **System object** (`kcsyso`): the operating-system version (as a current Windows) and the system language. **Cursor** (`kccursor`): cursor

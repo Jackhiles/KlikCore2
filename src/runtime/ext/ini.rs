@@ -195,6 +195,45 @@ impl Extension for Ini {
     }
 }
 
+/// "Ini++ v1.5" (INI++15.mfx), as far as games use it (inferred from use): action 78 loads
+/// a file (path; its options are ignored: changes are always saved), 14 sets a value
+/// (group, item, a flag, value); expression 8 reads a value (group, item, default).
+#[derive(Default)]
+pub struct IniPlus {
+    ini: Ini,
+}
+
+impl Extension for IniPlus {
+    fn condition(&self, _: usize, _: &[Value], _: Comparison, _: &SaveFs) -> Option<bool> {
+        None
+    }
+
+    fn action(&mut self, idx: usize, args: &[Value], fs: &SaveFs) -> bool {
+        match idx {
+            78 => {
+                self.ini.path = Some(Ini::resolve(&arg_s(args, 0), fs));
+                self.ini.load(fs);
+            }
+            14 => {
+                let v = args.get(3).map(|v| v.to_string()).unwrap_or_default();
+                self.ini.set(&arg_s(args, 0), &arg_s(args, 1), v, fs);
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    fn expression(&self, idx: usize, args: &[Value], _fs: &SaveFs) -> Option<Value> {
+        match idx {
+            8 => Some(match self.ini.get(&arg_s(args, 0), &arg_s(args, 1)) {
+                None => args.get(2).cloned().unwrap_or(Value::Int(0)),
+                Some(_) => self.ini.value(&arg_s(args, 0), &arg_s(args, 1)),
+            }),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

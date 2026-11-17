@@ -378,6 +378,12 @@ impl<'a> Eval<'a> {
             (_, 27) => Value::Int(255 - inst.tint[3] as i32),
             (_, 30) => inst.value(a.first().map_or(0, Value::as_i32).max(0) as usize),
             (_, 31) => Value::Str(inst.string(a.first().map_or(0, Value::as_i32).max(0) as usize)),
+            // Angle from the object to a point (x, y): 0 = right, counter-clockwise (inferred:
+            // a game turns eyes towards the player with it).
+            (_, 33) => {
+                let (px, py) = (a.first().map_or(0.0, Value::as_f64), a.get(1).map_or(0.0, Value::as_f64));
+                Value::Float((-(py - inst.y)).atan2(px - inst.x).to_degrees().rem_euclid(360.0))
+            }
             (_, 40) => Value::Int(b().2 as i32),
             (_, 41) => Value::Int(b().3 as i32),
             (ObjectKind::Active, 81) => Value::Float(inst.scale_x),

@@ -97,8 +97,10 @@ fn system_language_id() -> u16 {
 pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dyn Extension>> {
     match name.to_ascii_lowercase().as_str() {
         "kcini" => Some(Box::new(ini::Ini::default())),
+        "ini++15" => Some(Box::new(ini::IniPlus::default())),
         "kcarray" => Some(Box::new(kcarray::KcArray::from_data(data))),
         "ctrlx" => Some(Box::new(ctrlx::ControlX { keys: shared.keys.clone() })),
+        "key" => Some(Box::new(ctrlx::KeyObject { keys: shared.keys.clone() })),
         "joystick" => Some(Box::new(joystick::Joypad)),
         // Japanese text input mode: nothing to do.
         "controlime" => Some(Box::new(inert::Inert)),
@@ -118,6 +120,9 @@ pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dy
         // Screen capture and image tools (used by a debug screenshot), a slider control,
         // Steam's API: nothing to show or do here.
         "capture" | "imageconv" | "trackbar" | "steamworks" => Some(Box::new(inert::Inert)),
+        // Window scaling and controller extensions: KlikCore scales the window itself and
+        // reads controllers through its own support, so these report no controller.
+        "ultimatefullscreen" | "xboxgamepad" | "joystick2" => Some(Box::new(inert::Inert)),
         "kcwctrl" | "drpc" | "hiddenproperties" | "android" | "inappandroid" | "xna" | "androidplus" | "multipletouch" => {
             Some(Box::new(inert::Inert))
         }

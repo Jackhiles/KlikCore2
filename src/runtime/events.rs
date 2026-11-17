@@ -818,6 +818,9 @@ impl Runtime {
                 matches!(c.params.first().map(|p| &p.value), Some(Param::Key(k)) if input.down.contains(k))
             }
             (MOUSE, -9) => !input.pressed.is_empty(),
+            // Mouse wheel moved up / down.
+            (MOUSE, -11) => input.wheel > 0.0,
+            (MOUSE, -12) => input.wheel < 0.0,
             (MOUSE, -5) | (MOUSE, -6) => {
                 let (button, double) = match c.params.first().map(|p| &p.value) {
                     Some(Param::Click { button, double }) => (*button as usize, *double),
@@ -1365,6 +1368,8 @@ impl Runtime {
             // Parameterless display options (vsync / window mode): the viewer's own
             // settings decide those.
             (GAME, 19) | (GAME, 20) => {}
+            // Set a frame shader parameter: shaders aren't run.
+            (GAME, 33) => {}
             (GAME, 23) => {
                 if let Some(Param::Colour(c)) = a.params.first().map(|p| &p.value) {
                     self.background_color = *c;
@@ -1943,6 +1948,8 @@ impl Runtime {
                 self.min_z -= 1;
                 self.instances[idx].z = self.min_z;
             }
+            // "Add to debugger": nothing to do.
+            (_, 62) => {}
             (_, 61) => {
                 let l = (self.param_i(a, 0, sel, cur) - 1).max(0) as usize;
                 let max = self.frame().layers.len().saturating_sub(1);
