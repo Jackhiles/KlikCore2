@@ -193,6 +193,8 @@ pub struct Runtime {
     pub layer_fx: HashMap<usize, LayerFx>,
     /// The players' control keys (from the header; games can change them).
     pub controls: [crate::ctf_loader::header::PlayerControls; 4],
+    /// "Ignore controls" (player action 2) until "restore controls" (3), per player.
+    pub controls_ignored: [bool; 4],
     events: Rc<Events>,
     event_state: HashMap<usize, EventState>,
     groups_disabled: HashSet<u16>,
@@ -326,6 +328,7 @@ impl Runtime {
             score: [game.header.initial_score as i32; 4],
             lives: [game.header.initial_lives as i32; 4],
             controls: game.header.controls.clone(),
+            controls_ignored: [false; 4],
             layer_fx: HashMap::default(),
             game,
             frame_index: 0,
@@ -403,6 +406,17 @@ impl Runtime {
         for (i, z) in idx.into_iter().zip(zs) {
             self.instances[i].z = z;
         }
+    }
+
+    /// The players' control keys, with no keys for players whose controls are ignored.
+    pub(crate) fn effective_controls(&self) -> [crate::ctf_loader::header::PlayerControls; 4] {
+        let mut c = self.controls.clone();
+        for (p, ignored) in self.controls_ignored.iter().enumerate() {
+            if *ignored {
+                c[p].keys = [0; 8];
+            }
+        }
+        c
     }
 
     /// Is layer `layer` (0-based) shown: as the Layer object last set it, else as it starts.
@@ -668,7 +682,7 @@ impl Runtime {
             }
             return;
         }
-        let all_controls = self.controls.clone();
+        let all_controls = self.effective_controls();
         let controls = all_controls[0].clone();
         self.update_platforms(input, &controls);
         if !self.pmo.is_empty() {
@@ -692,6 +706,7 @@ impl Runtime {
                 inst.update_movement(obj, input, &all_controls);
             }
             inst.update_animation(obj);
+            inst.update_flash(dt);
         }
 
         // Animations that just ended trigger their "animation is over" events.

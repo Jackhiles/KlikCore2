@@ -67,6 +67,8 @@ pub struct Instance {
     pub layer: usize,
     pub z: i64,
     pub visible: bool,
+    /// Flashing (Active action 28): interval and time since the last toggle, in ms.
+    pub flash: Option<(f64, f64)>,
     pub background: bool,
     pub destroyed: bool,
     pub values: Vec<Value>,
@@ -106,6 +108,17 @@ pub struct Instance {
 }
 
 impl Instance {
+    /// Flashing objects show / hide in turn every interval.
+    pub fn update_flash(&mut self, dt_ms: f64) {
+        if let Some((every, t)) = &mut self.flash {
+            *t += dt_ms;
+            while *t >= *every {
+                *t -= *every;
+                self.visible = !self.visible;
+            }
+        }
+    }
+
     /// Move the object from an action. The movement's origin (where a path restarts with
     /// "reposition at end") moves along with it.
     pub fn set_position(&mut self, x: f64, y: f64) {
@@ -156,6 +169,7 @@ impl Instance {
             layer,
             z,
             visible: true,
+            flash: None,
             background: false,
             destroyed: false,
             values: Vec::new(),

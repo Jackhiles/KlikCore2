@@ -990,9 +990,14 @@ impl Runtime {
                     .compare(cmp, &rhs)
             }
             (PLAYER, -4) | (PLAYER, -6) => {
-                // Joystick-direction mask (up, down, left, right, fire1, fire2, ...) on player 1's keys.
+                // Joystick-direction mask (up, down, left, right, fire1, fire2, ...) on the
+                // player's keys (none while the player's controls are ignored).
                 let mask = self.param_i(c, 0, sel, None) as u32;
-                let keys = self.controls[0].keys;
+                let p = player_index(c.object_info);
+                if self.controls_ignored[p] {
+                    return neg;
+                }
+                let keys = self.controls[p].keys;
                 let set = if c.num == -4 {
                     &input.pressed
                 } else {
@@ -1546,7 +1551,9 @@ impl Runtime {
                     _ => self.lives[p] - v,
                 };
             }
-            (PLAYER, 2) | (PLAYER, 3) => {}
+            // Ignore (2) / restore (3) the player's controls: their movements and joystick
+            // conditions stop seeing the keys.
+            (PLAYER, n @ (2 | 3)) => self.controls_ignored[player_index(a.object_info)] = n == 2,
             // Set one of the player's control keys (0-3 up, down, left, right, 4-7 fire).
             (PLAYER, 9) => {
                 let k = self.eval_param(a, 0, sel, None).as_i32();
@@ -1946,9 +1953,19 @@ impl Runtime {
             // condition, -10), where removing it is what the event is for. Inferred, so
             // treated like destroy.
             (_, 25) => self.instances[idx].destroyed = true,
-            (_, 26) => self.instances[idx].visible = false,
-            (_, 27) => self.instances[idx].visible = true,
-            (_, 28) => {}
+            (_, 26) => {
+                self.instances[idx].visible = false;
+                self.instances[idx].flash = None;
+            }
+            (_, 27) => {
+                self.instances[idx].visible = true;
+                self.instances[idx].flash = None;
+            }
+            // Flash: show / hide the object in turn, every N ms, until shown or hidden.
+            (_, 28) => {
+                let ms = self.eval_param(a, 0, sel, cur).as_f64().max(1.0);
+                self.instances[idx].flash = Some((ms, 0.0));
+            }
             (_, 29) | (_, 30) => {
                 if let Some(Param::Shoot {
                     position,
