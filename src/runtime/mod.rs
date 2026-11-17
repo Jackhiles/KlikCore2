@@ -381,6 +381,23 @@ impl Runtime {
         self.layer_fx.get(&layer).copied().unwrap_or_default()
     }
 
+    /// Re-order the objects (not backdrops) so ones lower on screen are in front. They keep
+    /// the set of depths they had, so backdrops stay where they were.
+    pub(crate) fn sort_by_y(&mut self) {
+        let mut idx: Vec<usize> = (0..self.instances.len())
+            .filter(|&i| !self.instances[i].destroyed && !self.instances[i].background)
+            .collect();
+        let mut zs: Vec<i64> = idx.iter().map(|&i| self.instances[i].z).collect();
+        zs.sort_unstable();
+        idx.sort_by(|&a, &b| {
+            let (a, b) = (&self.instances[a], &self.instances[b]);
+            a.y.total_cmp(&b.y).then(a.z.cmp(&b.z))
+        });
+        for (i, z) in idx.into_iter().zip(zs) {
+            self.instances[i].z = z;
+        }
+    }
+
     /// Is layer `layer` (0-based) shown: as the Layer object last set it, else as it starts.
     pub fn layer_visible(&self, layer: usize) -> bool {
         let start = self.frame().layers.get(layer).is_none_or(|l| l.flags & crate::ctf_loader::frame::Layer::VISIBLE != 0);

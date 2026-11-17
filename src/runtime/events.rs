@@ -1645,6 +1645,12 @@ impl Runtime {
             if label.eq_ignore_ascii_case("ext:platform") && self.pmo_action(a, sel, cur) {
                 return;
             }
+            // Layer object: sort the objects by Y, lower ones in front (95, no parameters;
+            // inferred: a top-down game runs it always, then sends floor objects to the back).
+            if label.eq_ignore_ascii_case("ext:layer") && a.num == 95 {
+                self.sort_by_y();
+                return;
+            }
             // Layer object: show (116) / hide (117) a layer by name.
             if label.eq_ignore_ascii_case("ext:layer") && matches!(a.num, 116 | 117) {
                 let name = self.eval_param(a, 0, sel, cur).as_string();
