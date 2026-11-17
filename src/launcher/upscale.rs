@@ -314,7 +314,7 @@ fn bleed(img: &RgbaImage) -> Vec<[u8; 3]> {
 
 /// Resize one channel-interleaved image (`ch` channels) with bilinear filtering, averaging
 /// whole source blocks first when shrinking by a whole factor (sharper than bilinear).
-fn resize(px: &[u8], w: usize, h: usize, ch: usize, nw: usize, nh: usize) -> Vec<u8> {
+pub(crate) fn resize(px: &[u8], w: usize, h: usize, ch: usize, nw: usize, nh: usize) -> Vec<u8> {
     if (w, h) == (nw, nh) {
         return px.to_vec();
     }

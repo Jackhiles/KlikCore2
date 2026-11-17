@@ -581,6 +581,53 @@ struct Textures {
     mods: std::sync::Arc<crate::mods::Mods>,
     /// Extra texture budget for high-resolution replacement packs (multiplier).
     budget_scale: usize,
+    /// Replacement images are decoded on worker threads (a large PNG takes tens of ms);
+    /// meanwhile the original image stands in. None until the first one is needed, and in
+    /// screenshots / tests, which decode right away so the picture is exact.
+    decoder: Option<PackDecoder>,
+    pub sync_decode: bool,
+    /// Handles showing their original image while the replacement decodes.
+    standing_in: std::collections::HashSet<u32>,
+    /// Decoded replacements waiting to be uploaded (a few per frame).
+    ready: std::collections::VecDeque<(u32, crate::ctf_loader::RgbaImage)>,
+    /// Window pixels per game pixel: replacements more detailed than that are shrunk to it
+    /// when decoded (the extra detail wouldn't show, and costs memory and upload time).
+    pub display_scale: f32,
+}
+
+/// Worker threads decoding replacement images.
+struct PackDecoder {
+    /// (handle, original width, height, largest useful scale)
+    jobs: std::sync::mpsc::Sender<(u32, u32, u32, f32)>,
+    done: std::sync::mpsc::Receiver<(u32, Option<crate::ctf_loader::RgbaImage>)>,
+}
+
+impl PackDecoder {
+    fn new(mods: std::sync::Arc<crate::mods::Mods>) -> Self {
+        let (jobs, rx) = std::sync::mpsc::channel::<(u32, u32, u32, f32)>();
+        let (tx, done) = std::sync::mpsc::channel();
+        let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+        let workers = std::thread::available_parallelism().map_or(2, |n| n.get().saturating_sub(1)).clamp(1, 4);
+        for _ in 0..workers {
+            let (rx, tx, mods) = (rx.clone(), tx.clone(), mods.clone());
+            std::thread::spawn(move || loop {
+                let job = rx.lock().ok().and_then(|r| r.recv().ok());
+                let Some((h, ow, oh, max_scale)) = job else { break };
+                let img = mods.image(h).map(|img| {
+                    let (nw, nh) = ((ow as f32 * max_scale).round() as u32, (oh as f32 * max_scale).round() as u32);
+                    if ow == 0 || img.width <= nw + nw / 10 || nw < ow || nh == 0 {
+                        return img;
+                    }
+                    let pixels = crate::launcher::upscale::resize(&img.pixels, img.width as usize, img.height as usize, 4, nw as usize, nh as usize);
+                    crate::ctf_loader::RgbaImage { width: nw, height: nh, pixels }
+                });
+                if tx.send((h, img)).is_err() {
+                    break;
+                }
+            });
+        }
+        Self { jobs, done }
+    }
 }
 
 /// A drawable image: a texture and the part of it holding the image.
@@ -657,7 +704,17 @@ impl Textures {
             return e.0.clone();
         }
         let original = g.images.get(handle);
-        let replaced = self.mods.image(handle);
+        // A replacement not decoded yet: ask a worker for it and show the original for now.
+        let decode_later = !self.sync_decode && self.mods.images.contains_key(&handle);
+        if decode_later {
+            let mods = self.mods.clone();
+            let d = self.decoder.get_or_insert_with(|| PackDecoder::new(mods));
+            if self.standing_in.insert(handle) {
+                let (ow, oh) = original.map_or((0, 0), |e| (e.width as u32, e.height as u32));
+                let _ = d.jobs.send((handle, ow, oh, self.display_scale.max(1.0)));
+            }
+        }
+        let replaced = if decode_later { None } else { self.mods.image(handle) };
         let resized = match (&replaced, original) {
             (Some(r), Some(o)) => r.width != o.width as u32 || r.height != o.height as u32,
             _ => false,
@@ -723,9 +780,53 @@ impl Textures {
         Some(sprite)
     }
 
+    /// Upload replacements the workers finished, a few per frame (each upload of a large
+    /// image takes a few ms), in place of the originals standing in.
+    fn take_decoded(&mut self) {
+        if let Some(d) = &self.decoder {
+            while let Ok((h, img)) = d.done.try_recv() {
+                match img {
+                    Some(img) => self.ready.push_back((h, img)),
+                    // Unreadable: keep showing the original.
+                    None => {
+                        self.standing_in.remove(&h);
+                    }
+                }
+            }
+        }
+        // One large image per frame, or small ones up to 2 MB: creating another texture
+        // right after a large upload waits for the driver to finish moving it (a whole frame).
+        const LARGE: usize = 512 << 10;
+        let mut uploaded = 0usize;
+        while let Some((h, img)) = self.ready.pop_front() {
+            if !self.standing_in.contains(&h) {
+                continue;
+            }
+            if uploaded > 0 && img.pixels.len() >= LARGE {
+                self.ready.push_front((h, img));
+                break;
+            }
+            self.standing_in.remove(&h);
+            let t = Texture2D::from_rgba8(img.width as u16, img.height as u16, &img.pixels);
+            t.set_filter(FilterMode::Linear);
+            let sprite = Sprite { src: Rect::new(0.0, 0.0, img.width as f32, img.height as f32), tex: t };
+            // Drop the stand-in (an atlas region just stays unused until its page goes).
+            if let Some(old) = self.map.remove(&h) {
+                self.bytes = self.bytes.saturating_sub(old.1);
+            }
+            self.bytes += img.pixels.len();
+            self.map.insert(h, (Some(sprite), img.pixels.len(), self.clock, None));
+            uploaded += img.pixels.len();
+            if uploaded >= LARGE.max(2 << 20) || img.pixels.len() >= LARGE {
+                break;
+            }
+        }
+    }
+
     /// Call once per rendered frame: advance the clock and release old textures (or whole
     /// atlas pages) if the cache is over budget.
     fn end_frame(&mut self) {
+
         let budget = texture_budget() * self.budget_scale.max(1);
         if self.bytes > budget {
             // (last used, own texture handle or atlas page, bytes)
@@ -746,6 +847,7 @@ impl Textures {
                 match what {
                     Ok(h) => {
                         self.map.remove(&h);
+                        self.standing_in.remove(&h);
                     }
                     Err(k) => {
                         self.pages[k] = None;
@@ -1272,6 +1374,10 @@ impl Viewer {
         let g_border = self.rt.game.header.border_color;
         clear_background(opaque(g_border));
         let (screen_origin, screen_scale) = self.viewport();
+        self.textures.display_scale = screen_scale;
+        // Replacements decoded since the last frame, before anything is drawn (creating a
+        // texture after drawing waits for the GPU to finish the frame).
+        self.textures.take_decoded();
         let (_, present_size) = self.present();
         let view = self.view_size();
         let scene = self.rt.draw_items();
@@ -1842,6 +1948,10 @@ struct FrameProfile {
     sum: [std::time::Duration; 4],
     frames: u32,
     since: Option<std::time::Instant>,
+    /// The slowest frame and the number over 25 ms (hitches) since the last report.
+    worst: std::time::Duration,
+    worst_parts: [std::time::Duration; 4],
+    slow: u32,
 }
 
 impl FrameProfile {
@@ -1850,6 +1960,14 @@ impl FrameProfile {
         let since = *self.since.get_or_insert_with(std::time::Instant::now);
         for (s, p) in self.sum.iter_mut().zip(parts) {
             *s += p;
+        }
+        let total: std::time::Duration = parts.iter().sum();
+        if total > self.worst {
+            self.worst = total;
+            self.worst_parts = parts;
+        }
+        if total.as_millis() >= 25 {
+            self.slow += 1;
         }
         self.frames += 1;
         if since.elapsed().as_secs_f32() >= 3.0 {
@@ -1863,6 +1981,18 @@ impl FrameProfile {
                 ms(self.sum[2]),
                 ms(self.sum[3])
             );
+            let p = self.worst_parts.map(|d| d.as_secs_f64() * 1000.0);
+            eprintln!(
+                "profile: worst frame {:.1} ms (logic {:.1}, audio {:.1}, draw {:.1}, present {:.1}), {} frames over 25 ms",
+                self.worst.as_secs_f64() * 1000.0,
+                p[0],
+                p[1],
+                p[2],
+                p[3],
+                self.slow
+            );
+            self.worst = std::time::Duration::ZERO;
+            self.slow = 0;
             *self = Self { since: Some(std::time::Instant::now()), ..Default::default() };
             return true;
         }
@@ -1946,6 +2076,8 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         v.textures.budget_scale = (v.pack_scale * v.pack_scale).ceil().min(4.0) as usize;
     }
     v.textures.mods = mods.clone();
+    // KLIKCORE_SYNC_PACK=1 decodes replacement images on the spot (for comparison).
+    v.textures.sync_decode = v.test_run || std::env::var_os("KLIKCORE_SYNC_PACK").is_some();
     v.audio.mods = mods;
     v.on_frame_changed();
     if opts.screenshot.is_none() {
