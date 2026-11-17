@@ -504,6 +504,8 @@ struct Launcher {
     focused_field: Option<&'static str>,
     /// Games whose compatibility check is running.
     checking: std::collections::HashSet<PathBuf>,
+    /// "Check all games" in progress.
+    compat_batch: Option<extras::CompatBatch>,
     tests: extras::Tests,
     /// Screenshot thumbnails, and one waiting for "Delete" to be clicked again.
     shot_textures: HashMap<PathBuf, Option<Texture2D>>,
@@ -588,6 +590,7 @@ impl Launcher {
             collection_input: None,
             focused_field: None,
             checking: Default::default(),
+            compat_batch: None,
             tests: Default::default(),
             shot_textures: HashMap::new(),
             shot_delete: None,
@@ -895,6 +898,12 @@ impl Launcher {
                 Msg::Compat(path, c) => {
                     self.checking.remove(&path);
                     let title = self.entries.iter().find(|e| e.path == path).map(|e| e.title.clone()).unwrap_or_default();
+                    if self.batch_result(c.as_ref(), &title) {
+                        if let Some(c) = c {
+                            self.meta.set_compat(&path, c);
+                        }
+                        continue;
+                    }
                     match c {
                         Some(c) => {
                             let msg = if c.unsupported == 0 { format!("{title}: every screen ran with nothing unsupported.") } else { format!("{title}: {} unsupported feature{}.", c.unsupported, if c.unsupported == 1 { "" } else { "s" }) };

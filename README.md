@@ -121,7 +121,8 @@ of a game runs at a time, and while a game started from the launcher is running,
 (favourites, Steam games, or one of your collections); favourites always come first. Star a game on its cover or in its
 menu; *Collections...* puts it into collections of your own. *Check compatibility* (or **Check** beside a game) runs
 every frame of the game for a few seconds in a separate KlikCore process and marks the cover **Runs** or **Partial: N**
-with what isn't supported. *Screenshots* shows the game's in-game screenshots (Ctrl+F12; new ones are listed in
+with what isn't supported; *Check all games' compatibility* in the ⋮ menu checks the whole library, two
+games at a time, and sums up. *Screenshots* shows the game's in-game screenshots (Ctrl+F12; new ones are listed in
 `screenshots\index.tsv`). *Report a problem* saves a zip (`<data dir>\reports\`) with the game's log, its
 compatibility result, its newest screenshot and Ctrl+R recording, and KlikCore's version and OS (no personal details),
 and can open a pre-filled GitHub issue to attach it to. Favourites, collections and results are kept in

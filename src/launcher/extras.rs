@@ -422,19 +422,67 @@ impl Launcher {
         let tx = self.tx.clone();
         self.say(format!("Checking {}: running every screen for a few seconds...", e.title));
         std::thread::spawn(move || {
-            let out = std::env::current_exe().and_then(|exe| {
-                let mut c = std::process::Command::new(exe);
-                c.arg(&e.path).args(["--sweep", "600", "--mute"]);
-                #[cfg(windows)]
-                {
-                    use std::os::windows::process::CommandExt;
-                    c.creation_flags(0x0800_0000);
-                }
-                c.output()
-            });
-            let text = out.map(|o| format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))).unwrap_or_default();
-            let _ = tx.send(Msg::Compat(e.path.clone(), super::meta::parse_sweep(&text)));
+            let _ = tx.send(Msg::Compat(e.path.clone(), sweep(&e.path)));
         });
+    }
+
+    /// Check every game in the library, two at a time, then say how they did.
+    pub(super) fn check_all_compat(&mut self) {
+        if self.compat_batch.is_some() {
+            self.say("Already checking every game.");
+            return;
+        }
+        let paths: Vec<PathBuf> = self
+            .entries
+            .iter()
+            .map(|e| e.path.clone())
+            .filter(|p| p.is_file() && !self.checking.contains(p))
+            .collect();
+        if paths.is_empty() {
+            self.say("No games to check.");
+            return;
+        }
+        self.checking.extend(paths.iter().cloned());
+        self.compat_batch = Some(CompatBatch { total: paths.len(), ..Default::default() });
+        self.say(format!("Checking {} games (each runs every screen for a few seconds)...", paths.len()));
+        let queue = std::sync::Arc::new(std::sync::Mutex::new(paths));
+        for _ in 0..2 {
+            let (queue, tx) = (queue.clone(), self.tx.clone());
+            std::thread::spawn(move || loop {
+                let Some(p) = queue.lock().ok().and_then(|mut q| q.pop()) else { break };
+                let r = sweep(&p);
+                if tx.send(Msg::Compat(p, r)).is_err() {
+                    break;
+                }
+            });
+        }
+    }
+
+    /// A compatibility result arrived while checking every game: count it; at the end,
+    /// sum up. Returns false if no such check is running.
+    pub(super) fn batch_result(&mut self, c: Option<&super::meta::Compat>, title: &str) -> bool {
+        let Some(b) = self.compat_batch.as_mut() else { return false };
+        b.done += 1;
+        match c {
+            Some(c) if c.unsupported == 0 => b.clean += 1,
+            Some(_) => b.partial.push(title.to_string()),
+            None => b.failed.push(title.to_string()),
+        }
+        if b.done < b.total {
+            let msg = format!("Checking games: {} of {} done...", b.done, b.total);
+            self.say(msg);
+            return true;
+        }
+        let b = self.compat_batch.take().expect("checked");
+        let mut msg = format!("Checked {} games: {} fully supported", b.total, b.clean);
+        if !b.partial.is_empty() {
+            msg += &format!(", {} with unsupported features ({})", b.partial.len(), b.partial.join(", "));
+        }
+        if !b.failed.is_empty() {
+            msg += &format!(", {} didn't load ({})", b.failed.len(), b.failed.join(", "));
+        }
+        self.say(msg + ".");
+        true
     }
 
     // --- What's new --------------------------------------------------------------------
@@ -989,4 +1037,31 @@ mod tests {
         assert_eq!(files, vec![("a.txt".to_string(), b"hello hello hello".to_vec()), ("b/c.txt".to_string(), b"x".to_vec())]);
         assert_eq!(url_encode("a b&c"), "a%20b%26c");
     }
+}
+
+/// Progress of "Check all games".
+#[derive(Default)]
+pub(super) struct CompatBatch {
+    pub total: usize,
+    pub done: usize,
+    pub clean: usize,
+    pub partial: Vec<String>,
+    pub failed: Vec<String>,
+}
+
+/// Run every frame of a game for a while in a separate KlikCore process (so a crash can't
+/// take the launcher down) and read the result.
+fn sweep(game: &Path) -> Option<super::meta::Compat> {
+    let out = std::env::current_exe().and_then(|exe| {
+        let mut c = std::process::Command::new(exe);
+        c.arg(game).args(["--sweep", "600", "--mute"]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            c.creation_flags(0x0800_0000);
+        }
+        c.output()
+    });
+    let text = out.map(|o| format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))).unwrap_or_default();
+    super::meta::parse_sweep(&text)
 }

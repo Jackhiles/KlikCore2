@@ -26,6 +26,7 @@ pub(super) enum MenuAction {
     Screenshots(usize),
     Report(usize),
     Tests,
+    CheckAllCompat,
     /// Your own cover ("cover") or banner ("hero") picture for a game, or remove them.
     CustomArt(usize, &'static str),
     RemoveCustomArt(usize),
@@ -224,7 +225,7 @@ impl Launcher {
             let mut items = if cfg!(target_os = "android") {
                 vec![("Play log and stats", MenuAction::PlayLog)]
             } else {
-                vec![("Steam games", MenuAction::SteamGames), ("Play log and stats", MenuAction::PlayLog), ("Tests", MenuAction::Tests), ("Open data folder", MenuAction::DataFolder)]
+                vec![("Steam games", MenuAction::SteamGames), ("Play log and stats", MenuAction::PlayLog), ("Tests", MenuAction::Tests), ("Check all games' compatibility", MenuAction::CheckAllCompat), ("Open data folder", MenuAction::DataFolder)]
             };
             if self.sync.is_some() {
                 items.insert(0, ("Devices and sync", MenuAction::Devices));
@@ -874,6 +875,7 @@ impl Launcher {
             MenuAction::Screenshots(i) => self.open_extra(super::extras::Extra::Screenshots(i)),
             MenuAction::Report(i) => self.open_extra(super::extras::Extra::Report(i)),
             MenuAction::Tests => self.open_extra(super::extras::Extra::Tests),
+            MenuAction::CheckAllCompat => self.check_all_compat(),
             MenuAction::AppSettings => {
                 self.devices_page = false;
                 self.steam_panel = false;
