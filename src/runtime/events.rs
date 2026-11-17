@@ -1639,9 +1639,25 @@ impl Runtime {
                 }
                 let m = &mut self.instances[idx].movement;
                 m.stopped = true;
+                if m.speed > 0.0 {
+                    m.resume_speed = Some(m.speed);
+                }
                 m.speed = 0.0;
             }
-            (_, 5) => self.instances[idx].movement.stopped = false,
+            // "Start" resumes at the speed the object had before it was stopped (or its
+            // movement's own speed, if it never moved): a ball stopped at the start of the
+            // frame and started later must not stay at speed 0.
+            (_, 5) => {
+                let own = self.game.object(self.instances[idx].oi).and_then(|o| match &o.props {
+                    ObjectProperties::Common(c) => c.movements.get(self.instances[idx].movement.index).map(|m| super::instance::initial_speed(&m.kind)),
+                    _ => None,
+                });
+                let m = &mut self.instances[idx].movement;
+                m.stopped = false;
+                if m.speed == 0.0 {
+                    m.speed = m.resume_speed.take().or(own).unwrap_or(0.0);
+                }
+            }
             (_, 6) => self.instances[idx].movement.speed = self.eval_param(a, 0, sel, cur).as_f64(),
             (_, 7) => self.instances[idx].movement.max_speed = Some(self.eval_param(a, 0, sel, cur).as_f64()),
             (_, 8) => {

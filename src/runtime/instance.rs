@@ -36,6 +36,8 @@ pub struct MoveState {
     /// "Set maximum speed": caps the movement's speed.
     pub max_speed: Option<f64>,
     pub stopped: bool,
+    /// The speed before "stop", which "start" resumes at.
+    pub resume_speed: Option<f64>,
     pub reversed: bool,
     // Path movement.
     pub step: usize,
@@ -519,7 +521,7 @@ fn default_anim(c: &ObjectCommon) -> usize {
     }
 }
 
-fn initial_speed(k: &MovementKind) -> f64 {
+pub(crate) fn initial_speed(k: &MovementKind) -> f64 {
     match k {
         MovementKind::Ball { speed, .. } => *speed as f64,
         MovementKind::Path { max_speed, .. } => *max_speed as f64,

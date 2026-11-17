@@ -12,7 +12,10 @@
 //! run 900                    # advance to tick 900
 //! dump door                  # debug: log objects whose name contains "door"
 //! dump_files                 # debug: log the save files written so far
-//! set "door" value 0 5       # put an object into a state (counter V | value N V)
+//! set "door" value 0 5       # put an object into a state (counter V | value N V | x V | y V | visible 0/1)
+//! set "door" @2 x 300        # only the 2nd instance named "door"
+//! global 3 10                # set global value 3 to 10
+//! expect_global 3 >= 10      # check a global value
 //! expect_frame prologue      # current frame, by name or index
 //! expect "door" value 0 = 1  # an object's state: counter | value N | x | y | visible, with = != < > <= >=
 //! expect "door" @2 x > 100   # only the 2nd instance named "door"
@@ -234,14 +237,24 @@ pub fn run_scenario(path: &Path) -> Result<ScenarioResult> {
                             .strip_prefix('"')
                             .and_then(|r| r.split_once('"'))
                             .ok_or_else(|| anyhow::anyhow!(at("set: object name must be in quotes")))?;
-                        let w: Vec<&str> = tail.split_whitespace().collect();
+                        let mut w: Vec<&str> = tail.split_whitespace().collect();
+                        // Optional `@N`: only the Nth instance (1-based, creation order).
+                        let nth = match w.first() {
+                            Some(x) if x.starts_with('@') => {
+                                let n = x[1..].parse::<usize>().map_err(|_| anyhow::anyhow!(at("set: bad @N")))?;
+                                w.remove(0);
+                                Some(n.max(1) - 1)
+                            }
+                            _ => None,
+                        };
                         let num = |i: usize| -> Result<f64> {
                             w.get(i).and_then(|x| x.parse().ok()).ok_or_else(|| anyhow::anyhow!(at("set: expected a number")))
                         };
                         let (field, index, v) = match w.first() {
                             Some(&"counter") => ("counter", 0, num(1)?),
                             Some(&"value") => ("value", num(1)? as usize, num(2)?),
-                            _ => bail!(at("set: field must be counter or value")),
+                            Some(&f @ ("x" | "y" | "visible")) => (f, 0, num(1)?),
+                            _ => bail!(at("set: field must be counter, value, x, y or visible")),
                         };
                         let value = if v.fract() == 0.0 { Value::Int(v as i32) } else { Value::Float(v) };
                         let game = &d.rt.game;
@@ -253,16 +266,48 @@ pub fn run_scenario(path: &Path) -> Result<ScenarioResult> {
                             .filter(|(_, i)| !i.destroyed && game.object(i.oi).is_some_and(|o| o.name.eq_ignore_ascii_case(name)))
                             .map(|(k, _)| k)
                             .collect();
+                        let hits: Vec<usize> = match nth {
+                            Some(n) => hits.get(n).copied().into_iter().collect(),
+                            None => hits,
+                        };
                         if hits.is_empty() {
                             result.failures.push(at(&format!("set: no object \"{name}\"")));
                         }
                         for k in hits {
                             let inst = &mut d.rt.instances[k];
-                            if field == "counter" {
-                                inst.counter = value.clone();
-                            } else {
-                                inst.set_value(index, value.clone());
+                            match field {
+                                "counter" => inst.counter = value.clone(),
+                                "x" => inst.x = v,
+                                "y" => inst.y = v,
+                                "visible" => inst.visible = v != 0.0,
+                                _ => inst.set_value(index, value.clone()),
                             }
+                        }
+                    }
+                    "global" => {
+                        // `global N V`: set a global value (numbered from 0).
+                        let w: Vec<f64> = rest.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                        let [n, v] = w[..] else { bail!(at("global: needs an index and a value")) };
+                        let value = if v.fract() == 0.0 { Value::Int(v as i32) } else { Value::Float(v) };
+                        d.rt.set_global_value(n.max(0.0) as usize, value);
+                    }
+                    "expect_global" => {
+                        let w: Vec<&str> = rest.split_whitespace().collect();
+                        let (Some(n), Some(op), Some(want)) = (w.first().and_then(|x| x.parse::<usize>().ok()), w.get(1), w.get(2).and_then(|x| x.parse::<f64>().ok())) else {
+                            bail!(at("expect_global: needs an index, an operator and a number"))
+                        };
+                        let v = d.rt.global_value(n).as_f64();
+                        let ok = match *op {
+                            "=" | "==" => (v - want).abs() < 1e-9,
+                            "!=" => (v - want).abs() >= 1e-9,
+                            "<" => v < want,
+                            ">" => v > want,
+                            "<=" => v <= want,
+                            ">=" => v >= want,
+                            _ => bail!(at("expect_global: bad operator")),
+                        };
+                        if !ok {
+                            result.failures.push(at(&format!("global {n} is {v}, expected {op} {want}")));
                         }
                     }
                     "expect" => match check_object(&d.rt, rest) {

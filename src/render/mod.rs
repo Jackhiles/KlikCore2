@@ -1381,14 +1381,17 @@ impl Viewer {
         let (_, present_size) = self.present();
         let view = self.view_size();
         let scene = self.rt.draw_items();
-        // Debug: KLIKCORE_DUMP_SCENE=1 lists what screenshots draw (name, place, image, ink).
-        if self.test_run && std::env::var_os("KLIKCORE_DUMP_SCENE").is_some() {
-            for i in scene.iter().filter(|i| i.visible) {
+        // Debug: KLIKCORE_DUMP_SCENE=1 lists what screenshots draw (name, place, image, ink);
+        // =all includes hidden objects. Also prints the camera position.
+        if let Some(mode) = std::env::var_os("KLIKCORE_DUMP_SCENE").filter(|_| self.test_run) {
+            let all = mode == "all";
+            eprintln!("scene: camera at {:.0},{:.0}", self.rt.scroll.0, self.rt.scroll.1);
+            for i in scene.iter().filter(|i| all || i.visible) {
                 let what = match &i.visual {
                     Visual::Image { handle } => format!("image {handle}"),
                     v => format!("{:?}", std::mem::discriminant(v)),
                 };
-                eprintln!("scene: layer {} at {:.0},{:.0} {} ink {} tint {:?} \"{}\"", i.layer, i.x, i.y, what, i.ink_effect, i.tint, i.label);
+                eprintln!("scene: layer {} at {:.0},{:.0} {} ink {} tint {:?}{} \"{}\"", i.layer, i.x, i.y, what, i.ink_effect, i.tint, if i.visible { "" } else { " hidden" }, i.label);
             }
         }
         // Distortion effects need what's behind them as a texture: draw the game view
