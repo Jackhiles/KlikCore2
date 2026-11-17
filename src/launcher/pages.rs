@@ -218,6 +218,9 @@ impl Launcher {
             }
             changed = true;
         }
+        if !cfg!(target_os = "android") && self.launch_card(&mut p, &mut s) {
+            changed = true;
+        }
         if changed {
             s.save();
         }
@@ -271,6 +274,9 @@ impl Launcher {
             self.config.save();
         }
 
+        if !android {
+            self.watched_card(&mut p);
+        }
         self.bold_text("GAME DEFAULTS", p.x + 4.0, p.y + 16.0, 15, MUTED);
         let note = self.fit("For games whose settings you haven't changed. A game's own settings page overrides these.", 14, p.w - 8.0);
         self.text(&note, p.x + 4.0, p.y + 40.0, 14, MUTED);

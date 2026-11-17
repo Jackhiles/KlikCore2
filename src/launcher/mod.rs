@@ -28,6 +28,24 @@ mod dialogs {
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    pub fn pick_image() -> Option<PathBuf> {
+        rfd::FileDialog::new().set_title("Choose a picture").add_filter("Pictures", &["png", "jpg", "jpeg"]).pick_file()
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn pick_image() -> Option<PathBuf> {
+        None
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn pick_image() -> Option<PathBuf> {
+        run(
+            &["--title", "Choose a picture", "--getopenfilename", ".", "*.png *.jpg *.jpeg"],
+            &["--file-selection", "--title=Choose a picture", "--file-filter=Pictures | *.png *.jpg *.jpeg"],
+        )
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     pub fn pick_folder() -> Option<PathBuf> {
         rfd::FileDialog::new().set_title("Choose a folder with games").pick_folder()
     }
@@ -177,6 +195,29 @@ pub fn window_conf() -> Conf {
     }
 }
 
+/// Command-line options typed in a game's launch options: split on spaces, with "double
+/// quotes" around options that contain spaces.
+fn split_args(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    for c in s.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            c if c.is_whitespace() && !quoted => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            c => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
 /// Launcher-wide options in `<data dir>\KlikCore\launcher.ini`.
 #[derive(Debug, Clone)]
 struct LauncherConfig {
@@ -201,6 +242,8 @@ struct LauncherConfig {
     tv: u8,
     /// The tests page's folder (default: Ctrl+R recordings).
     tests_dir: Option<PathBuf>,
+    /// Folders scanned for new games when the launcher starts.
+    watch_dirs: Vec<PathBuf>,
 }
 
 impl LauncherConfig {
@@ -228,6 +271,7 @@ impl LauncherConfig {
             last_seen_version: String::new(),
             tv: 2,
             tests_dir: None,
+            watch_dirs: Vec::new(),
         };
         if let Ok(text) = std::fs::read_to_string(Self::file()) {
             for line in text.lines() {
@@ -243,6 +287,7 @@ impl LauncherConfig {
                     Some(("last_seen_version", v)) => c.last_seen_version = v.trim().to_string(),
                     Some(("tv_mode", v)) => c.tv = v.trim().parse::<u8>().unwrap_or(2).min(2),
                     Some(("tests_dir", v)) if !v.trim().is_empty() => c.tests_dir = Some(PathBuf::from(v.trim())),
+                    Some(("watch_dirs", v)) => c.watch_dirs = v.split('|').map(str::trim).filter(|d| !d.is_empty()).map(PathBuf::from).collect(),
                     _ => {}
                 }
             }
@@ -254,7 +299,7 @@ impl LauncherConfig {
 
     fn save(&self) {
         let text = format!(
-            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\ndiscord={}\nupdate_check={}\nui_size={}\nsort={}\nfilter={}\nlast_seen_version={}\ntv_mode={}\ntests_dir={}\n",
+            "[launcher]\nsteam_mode={}\nstorage={}\nadd_self_to_steam={}\ndiscord={}\nupdate_check={}\nui_size={}\nsort={}\nfilter={}\nlast_seen_version={}\ntv_mode={}\ntests_dir={}\nwatch_dirs={}\n",
             if self.steam_copy { "copy" } else { "link" },
             self.storage.display(),
             if self.steam_self_never { "never" } else { "ask" },
@@ -265,7 +310,8 @@ impl LauncherConfig {
             self.filter,
             self.last_seen_version,
             self.tv,
-            self.tests_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default()
+            self.tests_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default(),
+            self.watch_dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join("|")
         );
         TV_MODE.store(self.tv_active(), std::sync::atomic::Ordering::Relaxed);
         UI_SIZE.store(self.ui_size, std::sync::atomic::Ordering::Relaxed);
@@ -392,6 +438,8 @@ struct Launcher {
     extra: Option<extras::Extra>,
     /// The "new collection" field.
     collection_input: Option<String>,
+    /// The text field being typed in (its name) on a settings page.
+    focused_field: Option<&'static str>,
     /// Games whose compatibility check is running.
     checking: std::collections::HashSet<PathBuf>,
     tests: extras::Tests,
@@ -476,6 +524,7 @@ impl Launcher {
             meta: meta::Meta::load(),
             extra: None,
             collection_input: None,
+            focused_field: None,
             checking: Default::default(),
             tests: Default::default(),
             shot_textures: HashMap::new(),
@@ -747,9 +796,18 @@ impl Launcher {
             self.say(format!("{} is already running.", e.title));
             return;
         }
+        // Launch options from the game's settings: a start frame and extra options.
+        let s = Settings::for_game(&e.path, None);
+        let mut args: Vec<String> = Vec::new();
+        if s.start_frame > 0 {
+            args.push("--frame".into());
+            args.push(s.start_frame.to_string());
+        }
+        args.extend(split_args(&s.launch_args));
         match update::program_path().and_then(|exe| {
             std::process::Command::new(exe)
                 .arg(&e.path)
+                .args(&args)
                 .current_dir(e.path.parent().unwrap_or(Path::new(".")))
                 .spawn()
         }) {
@@ -1030,6 +1088,7 @@ pub async fn run() {
     let mut l = Launcher::new();
     l.start_update_check();
     l.check_whats_new();
+    l.scan_watched(false);
     if l.config.tv_active() {
         set_fullscreen(true);
     }

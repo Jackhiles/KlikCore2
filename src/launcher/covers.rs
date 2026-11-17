@@ -34,8 +34,48 @@ fn find(dir: &Path, stem: &str) -> Option<PathBuf> {
     ["png", "jpg"].iter().map(|e| dir.join(format!("{stem}.{e}"))).find(|p| p.is_file())
 }
 
-/// Make sure a game's cover and hero exist on disk; returns their files.
+/// The cover and hero to show: your own pictures (`custom-cover` / `custom-hero`) where you
+/// chose one, otherwise Steam's or KlikCore's.
 fn prepare(game: &Path, title: &str) -> (Option<PathBuf>, Option<PathBuf>) {
+    let d = dir(game);
+    let (cc, ch) = (find(&d, "custom-cover"), find(&d, "custom-hero"));
+    if cc.is_some() && ch.is_some() {
+        return (cc, ch);
+    }
+    let (c, h) = prepare_own(game, title);
+    (cc.or(c), ch.or(h))
+}
+
+/// Use `picture` (PNG or JPEG) as a game's cover (`which` = "cover") or banner ("hero").
+pub fn set_custom(game: &Path, which: &str, picture: &Path) -> Result<(), String> {
+    let ext = picture.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let ext = match ext.as_str() {
+        "png" => "png",
+        "jpg" | "jpeg" => "jpg",
+        _ => return Err("choose a PNG or JPEG picture".into()),
+    };
+    let d = dir(game);
+    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+    for old in ["png", "jpg"] {
+        let _ = std::fs::remove_file(d.join(format!("custom-{which}.{old}")));
+    }
+    std::fs::copy(picture, d.join(format!("custom-{which}.{ext}"))).map(|_| ()).map_err(|e| e.to_string())
+}
+
+pub fn has_custom(game: &Path) -> bool {
+    let d = dir(game);
+    find(&d, "custom-cover").is_some() || find(&d, "custom-hero").is_some()
+}
+
+pub fn remove_custom(game: &Path) {
+    let d = dir(game);
+    for f in ["custom-cover.png", "custom-cover.jpg", "custom-hero.png", "custom-hero.jpg"] {
+        let _ = std::fs::remove_file(d.join(f));
+    }
+}
+
+/// Make sure a game's cover and hero exist on disk; returns their files.
+fn prepare_own(game: &Path, title: &str) -> (Option<PathBuf>, Option<PathBuf>) {
     let d = dir(game);
     if let (Some(c), Some(h)) = (find(&d, "cover"), find(&d, "hero")) {
         return (Some(c), Some(h));
@@ -81,8 +121,13 @@ fn prepare(game: &Path, title: &str) -> (Option<PathBuf>, Option<PathBuf>) {
 }
 
 /// Forget a game's artwork (it is made again next time).
+/// Forget the artwork made for a game (it's made again); pictures you chose stay.
 pub fn clear(game: &Path) {
-    let _ = std::fs::remove_dir_all(dir(game));
+    for f in std::fs::read_dir(dir(game)).into_iter().flatten().flatten() {
+        if !f.file_name().to_string_lossy().starts_with("custom-") {
+            let _ = std::fs::remove_file(f.path());
+        }
+    }
 }
 
 /// Start the worker. Send it (game, title); it answers through `out`.

@@ -119,6 +119,12 @@ pub struct Settings {
     pub ai_pack: bool,
     /// Show the controller's button legend.
     pub pad_legend: bool,
+    /// Launch options: the frame to start on (0 = the game's first), extra command-line
+    /// options the launcher adds, and debug panels open at the start (1 variables, 2
+    /// events, 3 both).
+    pub start_frame: u32,
+    pub launch_args: String,
+    pub panels: u8,
     path: Option<PathBuf>,
 }
 
@@ -139,6 +145,9 @@ impl Default for Settings {
             mods: true,
             ai_pack: true,
             pad_legend: true,
+            start_frame: 0,
+            launch_args: String::new(),
+            panels: 0,
             path: None,
         }
     }
@@ -215,6 +224,10 @@ impl Settings {
                 "mods" => self.mods = on,
                 "ai_pack" => self.ai_pack = on,
                 "controller_legend" => self.pad_legend = on,
+                "start_frame" => self.start_frame = v.parse::<u32>().unwrap_or(0),
+                "panels" => self.panels = v.parse::<u8>().unwrap_or(0).min(3),
+                // Kept as typed (the value above is lower-cased).
+                "launch_args" => self.launch_args = line.split_once('=').map_or(String::new(), |(_, v)| v.trim().to_string()),
                 key if key.starts_with("pad_") => {
                     let button = key[4..].to_string();
                     self.pad_map.retain(|(b, _)| *b != button);
@@ -243,6 +256,9 @@ impl Settings {
         text += &format!("mods={}\n", self.mods as u8);
         text += &format!("ai_pack={}\n", self.ai_pack as u8);
         text += &format!("controller_legend={}\n", self.pad_legend as u8);
+        text += &format!("start_frame={}\n", self.start_frame);
+        text += &format!("panels={}\n", self.panels);
+        text += &format!("launch_args={}\n", self.launch_args.replace(['\n', '\r'], " "));
         for (b, v) in &self.pad_map {
             text += &format!("pad_{b}={v}\n");
         }

@@ -786,6 +786,176 @@ impl Launcher {
     }
 }
 
+/// Files found not to be games in watched folders (not inspected again), one path per line.
+fn not_games_file() -> PathBuf {
+    crate::runtime::files::data_root().join("not-games.txt")
+}
+
+impl Launcher {
+    /// A one-line text field named `name`: click to type into it; Enter or a click
+    /// elsewhere ends typing. Returns true when the text changed.
+    fn text_field(&mut self, name: &'static str, value: &mut String, r: Rect, placeholder: &str, accept: fn(char) -> bool) -> bool {
+        let focused = self.focused_field == Some(name);
+        rrect(r.x, r.y, r.w, r.h, 8.0, if focused { mix(BG, ACCENT, 0.12) } else { BG });
+        let mut changed = false;
+        if focused {
+            while let Some(c) = get_char_pressed() {
+                if accept(c) && value.chars().count() < 200 {
+                    value.push(c);
+                    changed = true;
+                }
+            }
+            if is_key_pressed(KeyCode::Backspace) && value.pop().is_some() {
+                changed = true;
+            }
+            if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Escape) {
+                self.focused_field = None;
+            }
+        }
+        if self.tap(r) {
+            self.focused_field = Some(name);
+        } else if focused && is_mouse_button_pressed(MouseButton::Left) && !r.contains(mouse()) {
+            self.focused_field = None;
+        }
+        let shown = if value.is_empty() && !focused { placeholder.to_string() } else { value.clone() };
+        let shown = self.fit_left(&shown, 15, r.w - 24.0);
+        self.text(&shown, r.x + 12.0, r.y + r.h / 2.0 + 6.0, 15, if value.is_empty() && !focused { MUTED } else { TEXT });
+        if focused && (get_time() * 2.0) as i64 % 2 == 0 {
+            draw_rectangle(r.x + 13.0 + self.text_width(&shown, 15), r.y + 9.0, 1.5, r.h - 18.0, TEXT);
+        }
+        changed
+    }
+
+    /// A game's launch options (its settings page). Returns true when something changed.
+    pub(super) fn launch_card(&mut self, p: &mut super::pages::Page, s: &mut Settings) -> bool {
+        let mut changed = false;
+        self.section_title(p, "LAUNCH");
+        let rows = 3.0;
+        rrect(p.x, p.y, p.w, rows * ROW_H, 12.0, CARD);
+        let field_w = (p.w * 0.42).min(320.0);
+        let fx = p.x + p.w - CARD_PAD - field_w;
+        // Start frame.
+        self.text("Start on frame", p.x + CARD_PAD, p.y + 31.0, 17, TEXT);
+        self.text("0 starts the game normally; a number skips straight to that frame", p.x + CARD_PAD, p.y + 53.0, 14, MUTED);
+        let mut frame = if s.start_frame == 0 { String::new() } else { s.start_frame.to_string() };
+        if self.text_field("start_frame", &mut frame, Rect::new(fx, p.y + 17.0, field_w, 40.0), "0", |c| c.is_ascii_digit()) {
+            s.start_frame = frame.parse().unwrap_or(0).min(9999);
+            changed = true;
+        }
+        p.y += ROW_H;
+        draw_line(p.x + CARD_PAD, p.y, p.x + p.w - CARD_PAD, p.y, 1.0, mix(CARD, TEXT, 0.06));
+        // Extra options.
+        self.text("Extra options", p.x + CARD_PAD, p.y + 31.0, 17, TEXT);
+        let hint = self.fit("Command-line options added when it starts, e.g. --mute or --fullscreen", 14, fx - p.x - CARD_PAD - 12.0);
+        self.text(&hint, p.x + CARD_PAD, p.y + 53.0, 14, MUTED);
+        let mut args = s.launch_args.clone();
+        if self.text_field("launch_args", &mut args, Rect::new(fx, p.y + 17.0, field_w, 40.0), "none", |c| !c.is_control()) {
+            s.launch_args = args;
+            changed = true;
+        }
+        p.y += ROW_H;
+        // Debug panels at the start.
+        let opts: [&str; 4] = ["Off", "Variables", "Events", "Both"];
+        let row: [(&str, &str, &[&str], usize); 1] = [("Debug panels at start", "Ctrl+G / Ctrl+E in game", &opts, s.panels.min(3) as usize)];
+        if let Some(k) = self.setting(p, false, row[0].0, row[0].1, row[0].2, row[0].3) {
+            s.panels = k as u8;
+            changed = true;
+        }
+        p.y += SECTION_GAP;
+        changed
+    }
+
+    /// Settings page: folders scanned for new games when the launcher starts.
+    pub(super) fn watched_card(&mut self, p: &mut super::pages::Page) {
+        self.section_title(p, "WATCHED FOLDERS");
+        let dirs = self.config.watch_dirs.clone();
+        let row = 52.0;
+        let h = ROW_H + dirs.len() as f32 * row + if dirs.is_empty() { 0.0 } else { 8.0 };
+        rrect(p.x, p.y, p.w, h, 12.0, CARD);
+        self.text("New games appear on their own", p.x + CARD_PAD, p.y + 31.0, 17, TEXT);
+        let hint = self.fit("Games added to these folders join the library when KlikCore starts", 14, p.w - 2.0 * CARD_PAD - 290.0);
+        self.text(&hint, p.x + CARD_PAD, p.y + 53.0, 14, MUTED);
+        let add = Rect::new(p.x + p.w - CARD_PAD - 140.0, p.y + (ROW_H - 38.0) / 2.0, 140.0, 38.0);
+        let scan = Rect::new(add.x - 130.0, add.y, 120.0, 38.0);
+        if self.button(scan, "Scan now", false, !dirs.is_empty() && self.busy.is_none()) {
+            self.scan_watched(true);
+        }
+        if self.button(add, "Add folder...", true, true) {
+            if let Some(d) = dialogs::pick_folder() {
+                if !self.config.watch_dirs.contains(&d) {
+                    self.config.watch_dirs.push(d);
+                    self.config.save();
+                    self.scan_watched(true);
+                }
+            }
+        }
+        let mut remove = None;
+        for (k, d) in dirs.iter().enumerate() {
+            let y = p.y + ROW_H + k as f32 * row;
+            draw_line(p.x + CARD_PAD, y, p.x + p.w - CARD_PAD, y, 1.0, mix(CARD, TEXT, 0.05));
+            let shown = self.fit_left(&d.display().to_string(), 15, p.w - 2.0 * CARD_PAD - 130.0);
+            self.text(&shown, p.x + CARD_PAD, y + 31.0, 15, if d.is_dir() { TEXT } else { MUTED });
+            if self.button(Rect::new(p.x + p.w - CARD_PAD - 110.0, y + 8.0, 110.0, 36.0), "Remove", false, true) {
+                remove = Some(k);
+            }
+        }
+        p.y += h + SECTION_GAP;
+        if let Some(k) = remove {
+            self.config.watch_dirs.remove(k);
+            self.config.save();
+        }
+    }
+
+    /// Look through the watched folders for games not in the library yet, in the
+    /// background. `announce`: say what happened even when nothing was found.
+    pub(super) fn scan_watched(&mut self, announce: bool) {
+        let dirs = self.config.watch_dirs.clone();
+        if dirs.is_empty() {
+            return;
+        }
+        let known: HashSet<String> = self.entries.iter().map(|e| e.path.to_string_lossy().to_lowercase()).collect();
+        let tx = self.tx.clone();
+        if announce {
+            self.busy = Some("Looking for new games in your watched folders...".into());
+        }
+        std::thread::spawn(move || {
+            let skip: HashSet<String> = std::fs::read_to_string(not_games_file()).unwrap_or_default().lines().map(|l| l.trim().to_lowercase()).collect();
+            let mut not_games = Vec::new();
+            let mut found = 0;
+            for d in &dirs {
+                for f in library::find_games(d) {
+                    let key = f.to_string_lossy().to_lowercase();
+                    if known.contains(&key) || skip.contains(&key) {
+                        continue;
+                    }
+                    match library::inspect(&f) {
+                        Some(e) => {
+                            found += 1;
+                            let _ = tx.send(Msg::Found(e));
+                        }
+                        None => not_games.push(f.display().to_string()),
+                    }
+                }
+            }
+            if !not_games.is_empty() {
+                use std::io::Write as _;
+                if let Ok(mut out) = std::fs::OpenOptions::new().create(true).append(true).open(not_games_file()) {
+                    for n in not_games {
+                        let _ = writeln!(out, "{n}");
+                    }
+                }
+            }
+            if found > 0 || announce {
+                let _ = tx.send(Msg::Done(match found {
+                    0 => "No new games in your watched folders.".into(),
+                    1 => "Added 1 new game from your watched folders.".into(),
+                    k => format!("Added {k} new games from your watched folders."),
+                }));
+            }
+        });
+    }
+}
+
 /// The newest Ctrl+R recording of a game (by file name).
 pub(super) fn latest_recording(game: &Path) -> Option<PathBuf> {
     let stem = game.file_stem()?.to_string_lossy().to_lowercase();
@@ -800,6 +970,13 @@ pub(super) fn latest_recording(game: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launch_options_split_with_quotes() {
+        assert_eq!(super::super::split_args("--frame 3  --mute"), vec!["--frame", "3", "--mute"]);
+        assert_eq!(super::super::split_args("--save-dir \"C:/My Saves\" -v"), vec!["--save-dir", "C:/My Saves", "-v"]);
+        assert!(super::super::split_args("   ").is_empty());
+    }
 
     #[test]
     fn zip_is_readable() {

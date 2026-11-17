@@ -26,6 +26,9 @@ pub(super) enum MenuAction {
     Screenshots(usize),
     Report(usize),
     Tests,
+    /// Your own cover ("cover") or banner ("hero") picture for a game, or remove them.
+    CustomArt(usize, &'static str),
+    RemoveCustomArt(usize),
     RemoveUpscale(usize),
     RepairUpscale(usize),
     Remove(usize),
@@ -628,6 +631,13 @@ impl Launcher {
                     items.push(("Make AI upscale pack", MenuAction::Upscale(i, super::upscale::Style::Auto)));
                 }
             }
+            if !cfg!(target_os = "android") {
+                items.push(("Choose cover picture...", MenuAction::CustomArt(i, "cover")));
+                items.push(("Choose banner picture...", MenuAction::CustomArt(i, "hero")));
+                if super::covers::has_custom(&path) {
+                    items.push(("Remove my pictures", MenuAction::RemoveCustomArt(i)));
+                }
+            }
             items.push(("Refresh artwork", MenuAction::RefreshArt(i)));
             items.push(("Remove from library", MenuAction::Remove(i)));
             self.open_menu(more.x + more.w, more.y + more.h + 6.0, items, true);
@@ -755,6 +765,26 @@ impl Launcher {
                 if let Some(dir) = self.entries[i].path.parent() {
                     let _ = std::process::Command::new(opener).arg(dir).spawn();
                 }
+            }
+            MenuAction::CustomArt(i, which) => {
+                let path = self.entries[i].path.clone();
+                if let Some(pic) = dialogs::pick_image() {
+                    match covers::set_custom(&path, which, &pic) {
+                        Ok(()) => {
+                            self.art.remove(&path);
+                            self.art_requested.remove(&path);
+                            self.say(if which == "cover" { "Cover changed." } else { "Banner changed." });
+                        }
+                        Err(e) => self.say(format!("Couldn't use that picture: {e}")),
+                    }
+                }
+            }
+            MenuAction::RemoveCustomArt(i) => {
+                let path = self.entries[i].path.clone();
+                covers::remove_custom(&path);
+                self.art.remove(&path);
+                self.art_requested.remove(&path);
+                self.say("Back to the game's own artwork.");
             }
             MenuAction::RefreshArt(i) => {
                 let path = self.entries[i].path.clone();

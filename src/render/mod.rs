@@ -2129,8 +2129,8 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         touch,
         _presence: None,
         // KLIKCORE_PANELS=vars,events opens the debug panels at the start (also in screenshots).
-        show_vars: std::env::var("KLIKCORE_PANELS").is_ok_and(|p| p.contains("vars")),
-        show_events: std::env::var("KLIKCORE_PANELS").is_ok_and(|p| p.contains("events")),
+        show_vars: std::env::var("KLIKCORE_PANELS").is_ok_and(|p| p.contains("vars")) || (opts.screenshot.is_none() && opts.settings.panels & 1 != 0),
+        show_events: std::env::var("KLIKCORE_PANELS").is_ok_and(|p| p.contains("events")) || (opts.screenshot.is_none() && opts.settings.panels & 2 != 0),
         recorder: None,
         mods_full: Default::default(),
         mods_plain: Default::default(),

@@ -121,7 +121,12 @@ and can open a pre-filled GitHub issue to attach it to. Favourites, collections 
 starts with **stats**: total time, the most played games and the last 30 days. After an update, **What's new** shows
 the release notes once. **TV mode** (Settings: Off / On / Auto, which is on in Steam's Gaming Mode) shows everything
 larger and fullscreen. **Tests** (in the ... menu) lists the scenarios in a folder (default: your Ctrl+R recordings),
-runs one or all in the background and shows pass / fail and their output.
+runs one or all in the background and shows pass / fail and their output. **Watched folders** (Settings) are scanned for new
+games when the launcher starts (or with *Scan now*); files that turn out not to be games are remembered in
+`not-games.txt` and skipped. A game's settings page has **launch options**: a frame to start on, extra command-line
+options (quote ones with spaces), and debug panels open at the start. *Choose cover / banner picture...* in a game's
+menu uses your own PNG or JPEG (kept as `custom-cover` / `custom-hero` in its art folder; *Refresh artwork* keeps them,
+*Remove my pictures* goes back).
 
 **Steam** (shown when Steam is installed; also `klikcore GAME --add-to-steam`) adds the game to Steam as a non-Steam
 shortcut that starts it with KlikCore, with the game's icon. If the game is or was a Steam game (installed through
