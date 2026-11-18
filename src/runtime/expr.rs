@@ -325,6 +325,22 @@ impl<'a> Eval<'a> {
                     rt.note_unimplemented(format!("expr {}/{}", rt.ace_owner_label(t.object_type), t.num), Value::Int(0))
                 });
             }
+            // Layer object: a layer's X offset (88, layer 1-based) and how many layers there
+            // are (92); Mouse object: the pointer's position (80 / 81).
+            let label = rt.ace_owner_label(t.object_type);
+            if label.eq_ignore_ascii_case("ext:layer") && matches!(t.num, 88 | 92) {
+                return if t.num == 92 {
+                    Value::Int(rt.frame().layers.len() as i32)
+                } else {
+                    let n = (a.first().map_or(1, Value::as_i32) - 1).max(0) as usize;
+                    Value::Float(rt.layer_fx(n).offset[0] as f64)
+                };
+            }
+            if label.eq_ignore_ascii_case("ext:kcmouse") && matches!(t.num, 80 | 81) {
+                let (mx, my) = rt.input_mouse;
+                let (sx, sy) = rt.scroll;
+                return Value::Int(if t.num == 80 { (mx - sx) as i32 } else { (my - sy) as i32 });
+            }
             if t.num >= 80 {
                 let r = rt.ext_expression(oi, (t.num - 80) as usize, a);
                 return r.unwrap_or_else(|| {

@@ -123,7 +123,10 @@ pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dy
         "capture" | "imageconv" | "trackbar" | "steamworks" => Some(Box::new(inert::Inert)),
         // Window scaling and controller extensions: KlikCore scales the window itself and
         // reads controllers through its own support, so these report no controller.
-        "ultimatefullscreen" | "xboxgamepad" | "joystick2" => Some(Box::new(inert::Inert)),
+        // SDL Joystick (BetterControllers) and webcam objects (SunkenCamera) report no device,
+        // so games use their keyboard / mouse controls (gamepads drive those through
+        // KlikCore's own controller support).
+        "ultimatefullscreen" | "xboxgamepad" | "joystick2" | "bettercontrollers" | "sunkencamera" => Some(Box::new(inert::Inert)),
         "kcwctrl" | "drpc" | "hiddenproperties" | "android" | "inappandroid" | "xna" | "androidplus" | "multipletouch" => {
             Some(Box::new(inert::Inert))
         }

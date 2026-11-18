@@ -1297,6 +1297,11 @@ impl Runtime {
                 None => neg,
             };
         }
+        // Layer object: is layer N (1-based) shown?
+        if c.object_type >= 32 && c.num == -91 && self.ace_owner_label(c.object_type).eq_ignore_ascii_case("ext:layer") {
+            let n = (self.param_i(c, 0, sel, None) - 1).max(0) as usize;
+            return self.layer_visible(n) != neg;
+        }
         // Layer object: is the layer called NAME shown?
         if c.object_type >= 32 && c.num == -92 && self.ace_owner_label(c.object_type).eq_ignore_ascii_case("ext:layer") {
             let name = self.eval_param(c, 0, sel, None).as_string();
@@ -2038,6 +2043,21 @@ impl Runtime {
             // its vertical offset (29: inferred from use, a background moved by a fixed amount
             // once the player reaches part of a stage).
             // Layers are numbered from 1, as in "move to layer".
+            // Layer object: set a layer's X offset (108; with 109 for Y, X first is inferred),
+            // and a layer shader parameter (129: shaders aren't run).
+            if label.eq_ignore_ascii_case("ext:layer") && a.num == 108 {
+                let layer = (self.param_i(a, 0, sel, cur) - 1).max(0) as usize;
+                let v = self.eval_param(a, 1, sel, cur).as_f64() as f32;
+                self.layer_fx.entry(layer).or_default().offset[0] = v;
+                return;
+            }
+            if label.eq_ignore_ascii_case("ext:layer") && a.num == 129 {
+                return;
+            }
+            // Mouse object: moving the real pointer (80 / 81) isn't done.
+            if label.eq_ignore_ascii_case("ext:kcmouse") && matches!(a.num, 80 | 81) {
+                return;
+            }
             if label.eq_ignore_ascii_case("ext:layer") && matches!(a.num, 109 | 111 | 112 | 126 | 127) {
                 let layer = (self.param_i(a, 0, sel, cur) - 1).max(0) as usize;
                 let v = self.eval_param(a, 1, sel, cur).as_i32();
