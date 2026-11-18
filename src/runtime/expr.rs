@@ -385,6 +385,20 @@ impl<'a> Eval<'a> {
                 Value::Float((-(py - inst.y)).atan2(px - inst.x).to_degrees().rem_euclid(360.0))
             }
             (_, 40) => Value::Int(b().2 as i32),
+            // Colour tint (0xBBGGRR) and a shader parameter by name.
+            (_, 28) => Value::Int(inst.tint[0] as i32 | (inst.tint[1] as i32) << 8 | (inst.tint[2] as i32) << 16),
+            (_, 29) => inst.shader_param(&a.first().map(|v| v.as_string()).unwrap_or_default()),
+            // How many instances are selected now, and this instance's number.
+            (_, 45) => Value::Int(rt.candidates(oi, self.sel).len() as i32),
+            (_, 46) => Value::Int(rt.instance_number(idx)),
+            // Text of paragraph N (0-based).
+            (ObjectKind::Text, 82) => {
+                let n = a.first().map_or(0, Value::as_i32).max(0) as usize;
+                Value::Str(match rt.game.object(oi).map(|o| &o.props) {
+                    Some(crate::ctf_loader::ObjectProperties::Common(c)) => c.text.as_ref().and_then(|t| t.paragraphs.get(n)).map(|p| p.text.clone()).unwrap_or_default(),
+                    _ => String::new(),
+                })
+            }
             (_, 41) => Value::Int(b().3 as i32),
             (ObjectKind::Active, 81) => Value::Float(inst.scale_x),
             (ObjectKind::Active, 82) => Value::Float(inst.scale_y),

@@ -275,6 +275,12 @@ pub struct Runtime {
     /// last), and a "break" (system action 44) asked for in the current block.
     child_sel: Vec<events::Sel>,
     child_break: bool,
+    /// "For each" loops running: (loop number, the instance this pass is for), innermost last.
+    for_each: Vec<(i16, usize)>,
+    /// The game asked for fullscreen (true) or a window (false); the viewer applies it.
+    pub fullscreen_request: Option<bool>,
+    /// The frame's colour tint (RGB, 255 = none), multiplied into everything drawn.
+    pub frame_tint: [u8; 3],
 }
 
 /// What the Layer object changed about a layer.
@@ -388,6 +394,9 @@ impl Runtime {
             event_log: None,
             child_sel: Vec::new(),
             child_break: false,
+            for_each: Vec::new(),
+            fullscreen_request: None,
+            frame_tint: [255; 3],
             obstacle_cache: RefCell::new(None),
             profile: std::env::var_os("KLIKCORE_PROFILE").map(|_| RefCell::new(HashMap::default())),
             ace_profile: (std::env::var("KLIKCORE_PROFILE").as_deref() == Ok("ace")).then(|| RefCell::new(HashMap::default())),
@@ -462,6 +471,7 @@ impl Runtime {
         self.pmo.clear();
         self.named_timers.clear();
         self.timers_fired.clear();
+        self.frame_tint = [255; 3];
         self.next_z = 0;
         self.min_z = 0;
         self.tick = 0;

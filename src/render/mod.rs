@@ -1575,7 +1575,10 @@ impl Viewer {
             {
                 continue;
             }
-            let fx = self.rt.layer_fx(li);
+            let mut fx = self.rt.layer_fx(li);
+            for c in 0..3 {
+                fx.rgb[c] = (fx.rgb[c] as u16 * self.rt.frame_tint[c] as u16 / 255) as u8;
+            }
             let xf = Xform {
                 origin,
                 scroll: scroll * coef - vec2(fx.offset[0], fx.offset[1]),
@@ -2323,6 +2326,9 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         v.handle_debug_keys();
         v.gather_input();
         v.advance();
+        if let Some(on) = v.rt.fullscreen_request.take() {
+            v.set_fullscreen(on);
+        }
         let t1 = std::time::Instant::now();
         v.audio.process(&mut v.rt).await;
         let game_cursor = v.rt.cursor_object.is_some() || v.rt.has_mouse_cursor_object();

@@ -909,6 +909,46 @@ impl Runtime {
         }
     }
 
+    /// A "for each" loop (Fusion 2.5): for each instance in turn, run the events whose
+    /// condition -41 has this loop number, with only that instance selected.
+    fn run_for_each(&mut self, id: i16, targets: Vec<usize>, input: &Input) {
+        let events = self.events.clone();
+        let ix = self.loop_events_index();
+        let wanted: Vec<usize> = (0..events.groups.len())
+            .filter(|&gi| {
+                matches!(ix.info[gi], GroupInfo::Event { child: false, .. })
+                    && events.groups[gi].conditions.iter().any(|c| c.object_type >= 0 && c.num == -41 && matches!(c.params.first().map(|p| &p.value), Some(Param::Short(n)) if *n == id))
+            })
+            .collect();
+        for idx in targets {
+            if self.instances.get(idx).is_none_or(|i| i.destroyed) {
+                continue;
+            }
+            self.for_each.push((id, idx));
+            for &gi in &wanted {
+                if !ix.parents[gi].iter().all(|&g| self.group_enabled(g)) {
+                    continue;
+                }
+                self.run_group(gi, &events.groups[gi], input);
+                if self.pending.is_some() {
+                    break;
+                }
+            }
+            self.for_each.pop();
+            if self.pending.is_some() {
+                break;
+            }
+        }
+    }
+
+    /// The (0-based) number of an instance among its object's instances, in creation order
+    /// (expression 46, condition -49; inferred from use: buttons show frames 0, 1, 2 by it,
+    /// and per-instance tables are read with it as the index).
+    pub(crate) fn instance_number(&self, idx: usize) -> i32 {
+        let oi = self.instances[idx].oi;
+        self.instances_of(oi).iter().position(|&i| i == idx).unwrap_or(0) as i32
+    }
+
     /// Run the child events of parent `parent` (if it is one), in order, each able to take
     /// over the parent's selection (condition -43); a "break" (action 44) ends the block.
     fn run_children(&mut self, parent: usize, sel: Sel, input: &Input) {
@@ -1364,6 +1404,29 @@ impl Runtime {
             -7 => self.filter(oi, sel, neg, |rt, _, i| {
                 rt.instances[i].current_speed() == 0.0
             }),
+            // "On each one of the object" in for each loop N (see run_for_each).
+            -41 => {
+                let Some(Param::Short(id)) = c.params.first().map(|p| &p.value) else { return false };
+                let Some(&(_, idx)) = self.for_each.iter().rev().find(|(n, _)| n == id) else { return neg };
+                let owned = self.candidates(oi, sel).contains(&idx);
+                if owned != neg {
+                    if owned {
+                        sel.insert(oi, vec![idx]);
+                    }
+                    return true;
+                }
+                return false;
+            }
+            // Compare the object's layer (1-based, like the layer expression).
+            -46 => {
+                let (cmp, rhs) = self.param_cmp(c, 0, sel, None);
+                self.filter(oi, sel, neg, |rt, _, i| Value::Int(rt.instances[i].layer as i32 + 1).compare(cmp, &rhs))
+            }
+            // Compare the instance's number (see instance_number).
+            -49 => {
+                let (cmp, rhs) = self.param_cmp(c, 0, sel, None);
+                self.filter(oi, sel, neg, |rt, _, i| Value::Int(rt.instance_number(i)).compare(cmp, &rhs))
+            }
             -8 => {
                 let mask = self.param_i(c, 0, sel, None) as u32;
                 self.filter(oi, sel, neg, |rt, _, i| {
@@ -1518,6 +1581,14 @@ impl Runtime {
     // ---------- actions ----------
 
     fn exec_action(&mut self, a: &Ace, sel: &mut Sel, input: &Input) {
+        // "Start a for each loop" (76): once per action, not once per object.
+        if a.object_type >= 0 && a.object_type < 32 && a.num == 76 {
+            if let Some(Param::Short(id)) = a.params.first().map(|p| &p.value) {
+                let targets = self.candidates(a.object_info, sel);
+                self.run_for_each(*id, targets, input);
+            }
+            return;
+        }
         if a.object_type >= 0 {
             let targets = self.candidates(a.object_info, sel);
             for idx in targets {
@@ -1629,6 +1700,14 @@ impl Runtime {
             (GAME, 19) | (GAME, 20) => {}
             // Set a frame shader parameter: shaders aren't run.
             (GAME, 33) => {}
+            // Fullscreen on (14) / off (15): the viewer applies it.
+            (GAME, 14) => self.fullscreen_request = Some(true),
+            (GAME, 15) => self.fullscreen_request = Some(false),
+            // The frame's colour tint (0xBBGGRR), over everything drawn.
+            (GAME, 36) => {
+                let v = self.param_i(a, 0, sel, None);
+                self.frame_tint = [(v & 255) as u8, ((v >> 8) & 255) as u8, ((v >> 16) & 255) as u8];
+            }
             (GAME, 23) => {
                 if let Some(Param::Colour(c)) = a.params.first().map(|p| &p.value) {
                     self.background_color = *c;
@@ -1673,6 +1752,17 @@ impl Runtime {
                     }
                     if !created.is_empty() {
                         sel.insert(*object_info, created);
+                    }
+                }
+            }
+            // Create an object at (x, y) on a layer (1-based), all given as expressions.
+            (CREATE, 2) => {
+                if let Some(oi) = Self::param_object(a, 0) {
+                    let x = self.eval_param(a, 1, sel, None).as_f64();
+                    let y = self.eval_param(a, 2, sel, None).as_f64();
+                    let layer = (self.param_i(a, 3, sel, None) - 1).max(0) as usize;
+                    if let Some(idx) = self.create_instance(oi, x, y, layer) {
+                        sel.insert(oi, vec![idx]);
                     }
                 }
             }
@@ -1781,6 +1871,25 @@ impl Runtime {
                     let ch = int(self, 1).clamp(1, audio::CHANNELS as i32) as usize;
                     let loops = if n == 29 { int(self, 2).max(0) as u32 } else { 1 };
                     self.play_sample(h, Some(ch), loops);
+                }
+            }
+            // Play a sample (or one named by an expression) with settings (inferred from use):
+            // channel (0 = any), whether the volume applies, volume. The last two settings
+            // (probably pan and frequency) aren't used yet.
+            36 => {
+                let h = sample.or_else(|| {
+                    let name = self.eval_param(a, 0, sel, None).as_string();
+                    self.game.sounds.sounds.iter().find(|s| s.name.eq_ignore_ascii_case(name.trim())).map(|s| s.handle)
+                });
+                if let Some(h) = h {
+                    let ch = int(self, 1);
+                    if self.eval_param(a, 2, sel, None).as_i32() != 0 {
+                        let v = self.eval_param(a, 3, sel, None).as_f64().clamp(0.0, 100.0);
+                        self.audio.sample_volume.insert(h, v);
+                        self.audio.refresh_volumes();
+                    }
+                    let ch = (ch > 0).then(|| (ch as usize).min(audio::CHANNELS));
+                    self.play_sample(h, ch, 1);
                 }
             }
             // Lock / unlock a channel: keeps automatic channel choice off it. Sounds played
@@ -2103,6 +2212,12 @@ impl Runtime {
             // condition, -10), where removing it is what the event is for. Inferred, so
             // treated like destroy.
             (_, 25) => self.instances[idx].destroyed = true,
+            // Set an alterable value by a computed index (selector 1 = value).
+            (_, 0) if a.params.len() >= 3 => {
+                let i = self.param_i(a, 1, sel, cur).max(0) as usize;
+                let v = self.eval_param(a, 2, sel, cur);
+                self.instances[idx].set_value(i, v);
+            }
             (_, 26) => {
                 self.instances[idx].visible = false;
                 self.instances[idx].flash = None;
@@ -2254,8 +2369,16 @@ impl Runtime {
                     None => self.note_unimplemented(format!("effect {name}"), ()),
                 }
             }
-            // Shader parameters (only for .fx effects).
-            (_, 64) => {}
+            // Shader parameters (only for .fx effects): kept, so games can read them back.
+            (_, 64) => {
+                let name = self.eval_param(a, 0, sel, cur).as_string();
+                let v = self.eval_param(a, 1, sel, cur);
+                let p = &mut self.instances[idx].shader_params;
+                match p.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                    Some(e) => e.1 = v,
+                    None => p.push((name, v)),
+                }
+            }
             (_, 11) | (_, 12) | (_, 13) => {
                 let count =
                     self.game

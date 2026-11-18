@@ -71,6 +71,8 @@ pub struct Instance {
     pub visible: bool,
     /// Flashing (Active action 28): interval and time since the last toggle, in ms.
     pub flash: Option<(f64, f64)>,
+    /// Shader parameters set by name (shaders aren't run, but games read them back).
+    pub shader_params: Vec<(String, Value)>,
     pub background: bool,
     pub destroyed: bool,
     pub values: Vec<Value>,
@@ -110,6 +112,10 @@ pub struct Instance {
 }
 
 impl Instance {
+    pub fn shader_param(&self, name: &str) -> Value {
+        self.shader_params.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map_or(Value::Int(0), |(_, v)| v.clone())
+    }
+
     /// Flashing objects show / hide in turn every interval.
     pub fn update_flash(&mut self, dt_ms: f64) {
         if let Some((every, t)) = &mut self.flash {
@@ -172,6 +178,7 @@ impl Instance {
             z,
             visible: true,
             flash: None,
+            shader_params: Vec::new(),
             background: false,
             destroyed: false,
             values: Vec::new(),
