@@ -315,7 +315,7 @@ impl ObjectCommon {
             let moving_at_start = r.read_u8()? != 0;
             r.skip(3)?;
             let direction_at_start = r.read_u32()?;
-            if let Ok(kind) = read_movement_kind(&mut r, type_id, unicode) {
+            if let Ok(kind) = read_movement_kind(&mut r, type_id, unicode, None) {
                 c.movements = vec![Movement {
                     player,
                     kind,
@@ -633,14 +633,15 @@ fn parse_movements(data: &[u8], base: usize, unicode: bool) -> Result<Vec<Moveme
         let name_offset = r.read_u32()? as usize;
         let _id = r.read_u32()?;
         let new_offset = r.read_u32()? as usize;
-        let _data_size = r.read_u32()?;
+        let data_size = r.read_u32()? as usize;
         r.seek(base + new_offset)?;
+        let end = (data_size > 0).then_some(base + new_offset + data_size);
         let player = r.read_i16()?;
         let type_id = r.read_i16()?;
         let moving_at_start = r.read_u8()? != 0;
         r.skip(3)?;
         let direction_at_start = r.read_u32()?;
-        let mut kind = read_movement_kind(&mut r, type_id, unicode)?;
+        let mut kind = read_movement_kind(&mut r, type_id, unicode, end)?;
         if let MovementKind::Extension { name } = &mut kind {
             r.seek(base + name_offset)?;
             *name = r.read_cstring(unicode).unwrap_or_default();
@@ -656,7 +657,9 @@ fn parse_movements(data: &[u8], base: usize, unicode: bool) -> Result<Vec<Moveme
 }
 
 /// Movement-type-specific data (shared by 1.5 and 2.x).
-fn read_movement_kind(r: &mut ByteReader, type_id: i16, unicode: bool) -> Result<MovementKind> {
+/// `end`: where the movement's data ends, if known (older games store path steps
+/// without the size prefix newer ones have).
+fn read_movement_kind(r: &mut ByteReader, type_id: i16, unicode: bool, end: Option<usize>) -> Result<MovementKind> {
     Ok(match type_id {
         0 => MovementKind::Static,
         1 => MovementKind::Mouse {
@@ -696,9 +699,34 @@ fn read_movement_kind(r: &mut ByteReader, type_id: i16, unicode: bool) -> Result
             let reposition_at_end = r.read_u8()? != 0;
             let reverse_at_end = r.read_u8()? != 0;
             r.skip(1)?;
+            // Older games: each step is 14 bytes with no size prefix and no name (speed,
+            // direction, dx, dy, cosine, sine, length, pause), told apart by the data size.
+            let old = match end {
+                Some(e) => e.checked_sub(r.pos()) == Some(n * 14),
+                // No size known: a newer step starts with 0 and its size (16 or more), an
+                // old one with its speed and direction (0-31).
+                None => {
+                    let save = r.pos();
+                    let (b0, b1) = (r.read_u8().unwrap_or(0), r.read_u8().unwrap_or(0));
+                    r.seek(save)?;
+                    n > 0 && !(b0 == 0 && b1 >= 16)
+                }
+            };
             let mut steps = Vec::with_capacity(n);
             for _ in 0..n {
                 let start = r.pos();
+                if old {
+                    let speed = r.read_u8()?;
+                    let direction = r.read_u8()?;
+                    let dx = r.read_i16()?;
+                    let dy = r.read_i16()?;
+                    r.skip(4)?;
+                    let length = r.read_i16()?;
+                    let pause = r.read_i16()?;
+                    steps.push(PathStep { speed, direction, dx, dy, length, pause, name: String::new() });
+                    r.seek(start + 14)?;
+                    continue;
+                }
                 r.skip(1)?;
                 let size = r.read_u8()? as usize;
                 let speed = r.read_u8()?;
