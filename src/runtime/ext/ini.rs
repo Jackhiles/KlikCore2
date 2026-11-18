@@ -195,12 +195,48 @@ impl Extension for Ini {
     }
 }
 
-/// "Ini++ v1.5" (INI++15.mfx), as far as games use it (inferred from use): action 78 loads
-/// a file (path; its options are ignored: changes are always saved), 14 sets a value
-/// (group, item, a flag, value); expression 8 reads a value (group, item, default).
+/// "Ini++ v1.5" (INI++15.mfx), as far as games use it (inferred from use):
+/// actions 78 load a file (path; its options are ignored: changes are always saved),
+/// 0 set the current group, 1 set a value (item, a flag, value) and 2 a string (item,
+/// text) in it, 14 set a value (group, item, a flag, value), 9 clear everything;
+/// expressions 0 / 1 read a value / string of the current group (item, default), 8 a value
+/// (group, item, default). The object's settings can name a file (no folder: it lives in
+/// MMFApplications, like the standard Ini object's; unconfirmed), loaded when first used.
 #[derive(Default)]
 pub struct IniPlus {
-    ini: Ini,
+    ini: std::cell::RefCell<Ini>,
+    /// File named in the object's settings, not loaded yet.
+    pending: std::cell::RefCell<Option<String>>,
+}
+
+impl IniPlus {
+    pub fn from_data(data: Option<&[u8]>) -> Self {
+        let name: String = data
+            .and_then(|d| d.get(2..))
+            .map(|d| d.iter().take(260).take_while(|&&b| b != 0).map(|&b| b as char).collect())
+            .unwrap_or_default();
+        let ini = Ini { group: String::new(), ..Default::default() };
+        IniPlus { ini: std::cell::RefCell::new(ini), pending: std::cell::RefCell::new((!name.trim().is_empty()).then(|| name.trim().to_string())) }
+    }
+
+    /// Load the file the settings name, the first time the object is used.
+    fn ready(&self, fs: &SaveFs) {
+        if let Some(name) = self.pending.borrow_mut().take() {
+            let mut ini = self.ini.borrow_mut();
+            if ini.path.is_none() {
+                ini.path = Some(Ini::resolve(&name, fs));
+                ini.load(fs);
+            }
+        }
+    }
+
+    fn get_value(&self, group: &str, item: &str, default: Option<&Value>) -> Value {
+        let ini = self.ini.borrow();
+        match ini.get(group, item) {
+            None => default.cloned().unwrap_or(Value::Int(0)),
+            Some(_) => ini.value(group, item),
+        }
+    }
 }
 
 impl Extension for IniPlus {
@@ -209,26 +245,49 @@ impl Extension for IniPlus {
     }
 
     fn action(&mut self, idx: usize, args: &[Value], fs: &SaveFs) -> bool {
+        if idx != 78 {
+            self.ready(fs);
+        }
+        let mut ini = self.ini.borrow_mut();
+        let g = ini.group.clone();
         match idx {
             78 => {
-                self.ini.path = Some(Ini::resolve(&arg_s(args, 0), fs));
-                self.ini.load(fs);
+                self.pending.borrow_mut().take();
+                ini.path = Some(Ini::resolve(&arg_s(args, 0), fs));
+                ini.load(fs);
+            }
+            0 => ini.group = arg_s(args, 0),
+            1 => {
+                let v = args.get(2).map(|v| v.to_string()).unwrap_or_default();
+                ini.set(&g, &arg_s(args, 0), v, fs);
+            }
+            2 => ini.set(&g, &arg_s(args, 0), arg_s(args, 1), fs),
+            9 => {
+                ini.data.clear();
+                ini.save(fs);
             }
             14 => {
                 let v = args.get(3).map(|v| v.to_string()).unwrap_or_default();
-                self.ini.set(&arg_s(args, 0), &arg_s(args, 1), v, fs);
+                ini.set(&arg_s(args, 0), &arg_s(args, 1), v, fs);
             }
             _ => return false,
         }
         true
     }
 
-    fn expression(&self, idx: usize, args: &[Value], _fs: &SaveFs) -> Option<Value> {
+    fn expression(&self, idx: usize, args: &[Value], fs: &SaveFs) -> Option<Value> {
+        self.ready(fs);
+        let g = self.ini.borrow().group.clone();
         match idx {
-            8 => Some(match self.ini.get(&arg_s(args, 0), &arg_s(args, 1)) {
-                None => args.get(2).cloned().unwrap_or(Value::Int(0)),
-                Some(_) => self.ini.value(&arg_s(args, 0), &arg_s(args, 1)),
-            }),
+            0 => Some(self.get_value(&g, &arg_s(args, 0), args.get(1))),
+            1 => {
+                let ini = self.ini.borrow();
+                Some(match ini.get(&g, &arg_s(args, 0)) {
+                    Some(s) => Value::Str(s.to_string()),
+                    None => Value::Str(args.get(1).map(|v| v.to_string()).unwrap_or_default()),
+                })
+            }
+            8 => Some(self.get_value(&arg_s(args, 0), &arg_s(args, 1), args.get(2))),
             _ => None,
         }
     }

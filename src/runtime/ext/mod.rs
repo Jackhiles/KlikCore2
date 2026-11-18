@@ -97,7 +97,7 @@ fn system_language_id() -> u16 {
 pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dyn Extension>> {
     match name.to_ascii_lowercase().as_str() {
         "kcini" => Some(Box::new(ini::Ini::default())),
-        "ini++15" => Some(Box::new(ini::IniPlus::default())),
+        "ini++15" => Some(Box::new(ini::IniPlus::from_data(data))),
         "kcarray" => Some(Box::new(kcarray::KcArray::from_data(data))),
         "ctrlx" => Some(Box::new(ctrlx::ControlX { keys: shared.keys.clone() })),
         "key" => Some(Box::new(ctrlx::KeyObject { keys: shared.keys.clone() })),
@@ -114,6 +114,7 @@ pub fn create(name: &str, data: Option<&[u8]>, shared: &Shared) -> Option<Box<dy
         "moo2" => Some(Box::new(moo::Moo::new(shared.tick.clone()))),
         "encryption" => Some(Box::new(misc::Encryption)),
         "parser" => Some(Box::new(misc::Parser::from_data(data))),
+        "stringtokenizer" => Some(Box::new(misc::Tokenizer::default())),
         "advdir" => Some(Box::new(misc::AdvDir)),
         "bigbox" => Some(Box::new(misc::BigBox)),
         "fontembed" => Some(Box::new(misc::FontEmbed)),

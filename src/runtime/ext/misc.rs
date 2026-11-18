@@ -188,3 +188,35 @@ mod tests {
         assert_eq!(Encryption.expression(1, &[e, Value::Str("k".into())], &fs).map(|v| v.as_string()), Some("1".into()));
     }
 }
+
+/// "String Tokenizer" (`StringTokenizer`), inferred from use: action 0 splits a text at any
+/// of the delimiter characters (empty pieces dropped, as strtok does); expression 0 is the
+/// number of pieces, 1 the piece at a 0-based index ("" past the end).
+#[derive(Default)]
+pub struct Tokenizer {
+    pieces: Vec<String>,
+}
+
+impl Extension for Tokenizer {
+    fn condition(&self, _: usize, _: &[Value], _: Comparison, _: &SaveFs) -> Option<bool> {
+        None
+    }
+
+    fn action(&mut self, idx: usize, args: &[Value], _fs: &SaveFs) -> bool {
+        if idx != 0 {
+            return false;
+        }
+        let (text, delims) = (arg_s(args, 0), arg_s(args, 1));
+        let delims: Vec<char> = if delims.is_empty() { vec![' '] } else { delims.chars().collect() };
+        self.pieces = text.split(|c| delims.contains(&c)).filter(|p| !p.is_empty()).map(str::to_string).collect();
+        true
+    }
+
+    fn expression(&self, idx: usize, args: &[Value], _fs: &SaveFs) -> Option<Value> {
+        match idx {
+            0 => Some(Value::Int(self.pieces.len() as i32)),
+            1 => Some(Value::Str(usize::try_from(super::arg_i(args, 0)).ok().and_then(|i| self.pieces.get(i)).cloned().unwrap_or_default())),
+            _ => None,
+        }
+    }
+}
