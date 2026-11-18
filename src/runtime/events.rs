@@ -566,6 +566,7 @@ impl Runtime {
                 end_of_frame: group.conditions.iter().any(|c| cond_is(c, GAME, -2)),
                 trigger: trigger_kind(group),
                 on_loop: on_loop.is_some(),
+                child: group.flags & CHILD_EVENT != 0,
             });
             let Some(c) = on_loop else { continue };
             match c.params.first().map(|p| &p.value) {
@@ -576,6 +577,21 @@ impl Runtime {
                     ix.by_name.entry(name.to_lowercase()).or_default().push(gi);
                 }
                 _ => ix.dynamic.push(gi),
+            }
+        }
+        // Child events (Fusion 2.5): a parent ends with system action 43; its children
+        // follow (flag CHILD_EVENT) up to the event that is only condition -42. Blocks nest.
+        ix.block_end = vec![usize::MAX; self.events.groups.len()];
+        let mut parents: Vec<usize> = Vec::new();
+        for (gi, g) in self.events.groups.iter().enumerate() {
+            if g.conditions.first().is_some_and(|c| cond_is(c, SYS, -42)) {
+                if let Some(p) = parents.pop() {
+                    ix.block_end[p] = gi;
+                }
+                continue;
+            }
+            if g.actions.iter().any(|a| a.object_type == SYS && a.num == 43) {
+                parents.push(gi);
             }
         }
         let ix = std::rc::Rc::new(ix);
@@ -600,6 +616,9 @@ impl Runtime {
                 ix.dynamic[b - 1]
             };
             if !ix.parents[gi].iter().all(|&id| self.group_enabled(id)) {
+                continue;
+            }
+            if matches!(ix.info[gi], GroupInfo::Event { child: true, .. }) {
                 continue;
             }
             let group = &events.groups[gi];
@@ -646,8 +665,8 @@ impl Runtime {
                     gi += 1;
                     continue;
                 }
-                GroupInfo::Event { end_of_frame, trigger, on_loop } => {
-                    if on_loop || end_of_frame != self.end_of_frame_pass || !self.end_of_frame_pass && trigger != self.triggered_pass {
+                GroupInfo::Event { end_of_frame, trigger, on_loop, child } => {
+                    if child || on_loop || end_of_frame != self.end_of_frame_pass || !self.end_of_frame_pass && trigger != self.triggered_pass {
                         gi += 1;
                         continue;
                     }
@@ -885,6 +904,51 @@ impl Runtime {
         if let Some(log) = &mut self.event_log {
             log.muted = was_muted;
         }
+        if self.pending.is_none() {
+            self.run_children(gi, sel, input);
+        }
+    }
+
+    /// Run the child events of parent `parent` (if it is one), in order, each able to take
+    /// over the parent's selection (condition -43); a "break" (action 44) ends the block.
+    fn run_children(&mut self, parent: usize, sel: Sel, input: &Input) {
+        let ix = self.loop_events_index();
+        let end = ix.block_end.get(parent).copied().unwrap_or(usize::MAX);
+        if end == usize::MAX {
+            return;
+        }
+        let events = self.events.clone();
+        self.child_sel.push(sel);
+        let mut k = parent + 1;
+        while k < end {
+            match ix.info[k] {
+                GroupInfo::Header { id, end: gend } => {
+                    k = if id.is_some_and(|id| !self.group_enabled(id)) && gend != usize::MAX { gend + 1 } else { k + 1 };
+                    continue;
+                }
+                GroupInfo::End => {
+                    k += 1;
+                    continue;
+                }
+                GroupInfo::Event { .. } => {}
+            }
+            let group = &events.groups[k];
+            if group.conditions.first().is_some_and(|c| cond_is(c, SYS, -42)) {
+                k += 1;
+                continue;
+            }
+            self.run_group(k, group, input);
+            if self.pending.is_some() || std::mem::take(&mut self.child_break) {
+                break;
+            }
+            // A child that is a parent itself ran its own children.
+            k = match ix.block_end[k] {
+                usize::MAX => k + 1,
+                e => e + 1,
+            };
+        }
+        self.child_break = false;
+        self.child_sel.pop();
     }
 
     // ---------- conditions ----------
@@ -904,6 +968,22 @@ impl Runtime {
         let r = match (c.object_type, c.num) {
             (SYS, -1) => true,
             (SYS, -2) => false,
+            // Child events: -43 takes over the parent's selection of the listed objects;
+            // -42 closes a block of children (never runs).
+            (SYS, -43) => {
+                if let (Some(Param::Raw(b)), Some(parent)) = (c.params.first().map(|p| &p.value), self.child_sel.last()) {
+                    let n = b.get(0..4).map_or(0, |x| u32::from_le_bytes([x[0], x[1], x[2], x[3]])) as usize;
+                    for k in 0..n.min(256) {
+                        let Some(x) = b.get(4 + k * 4..8 + k * 4) else { break };
+                        let oi = u32::from_le_bytes([x[0], x[1], x[2], x[3]]) as u16;
+                        if let Some(list) = parent.get(&oi) {
+                            sel.insert(oi, list.clone());
+                        }
+                    }
+                }
+                true
+            }
+            (SYS, -42) => false,
             (SYS, -3) => {
                 let lhs = self.eval_param(c, 0, sel, None);
                 let (cmp, rhs) = self.param_cmp(c, 1, sel, None);
@@ -1450,6 +1530,10 @@ impl Runtime {
         let _ = input;
         match (a.object_type, a.num) {
             (SYS, 0) => {}
+            // Child events: 43 ends a parent (its children run after its actions), 44 is
+            // "break" (the rest of the block's children don't run).
+            (SYS, 43) => {}
+            (SYS, 44) => self.child_break = true,
             // Execute external program (path, command line, flags).
             // Load a font from a file: text uses installed fonts (or the default) instead.
             (SYS, 25) => {}
@@ -2471,14 +2555,19 @@ pub(crate) struct LoopIndex {
     parents: Vec<Vec<u16>>,
     /// Per event: what the main pass needs to know about it.
     info: Vec<GroupInfo>,
+    /// Per event: for a parent of child events, the index of the event closing its block.
+    block_end: Vec<usize>,
 }
+
+/// Event flag of a child event (it runs only as part of its parent).
+const CHILD_EVENT: u16 = 0x8000;
 
 #[derive(Debug, Clone, Copy)]
 enum GroupInfo {
     /// A group's start (`end`: the index of its end).
     Header { id: Option<u16>, end: usize },
     End,
-    Event { end_of_frame: bool, trigger: Trigger, on_loop: bool },
+    Event { end_of_frame: bool, trigger: Trigger, on_loop: bool, child: bool },
 }
 
 /// See [`trigger_kind`]. `None` = the main pass.

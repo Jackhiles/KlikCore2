@@ -271,6 +271,10 @@ pub struct Runtime {
     loop_index: RefCell<Option<Rc<events::LoopIndex>>>,
     /// Detailed event log (see `eventlog`), when turned on.
     pub event_log: Option<eventlog::EventLog>,
+    /// Child events: the selection of each parent whose children are running (innermost
+    /// last), and a "break" (system action 44) asked for in the current block.
+    child_sel: Vec<events::Sel>,
+    child_break: bool,
 }
 
 /// What the Layer object changed about a layer.
@@ -382,6 +386,8 @@ impl Runtime {
             oi_index: RefCell::new(None),
             loop_index: RefCell::new(None),
             event_log: None,
+            child_sel: Vec::new(),
+            child_break: false,
             obstacle_cache: RefCell::new(None),
             profile: std::env::var_os("KLIKCORE_PROFILE").map(|_| RefCell::new(HashMap::default())),
             ace_profile: (std::env::var("KLIKCORE_PROFILE").as_deref() == Ok("ace")).then(|| RefCell::new(HashMap::default())),
