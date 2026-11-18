@@ -17,6 +17,14 @@ pub struct Layer {
 
 impl Layer {
     pub const VISIBLE: u32 = 0x10;
+    /// "Visible at start" unticked: hidden until shown (checked against the original
+    /// runtime: a game's menu pages carry it and start hidden there).
+    pub const HIDDEN_AT_START: u32 = 0x20000;
+
+    /// Shown when the frame starts.
+    pub fn visible_at_start(&self) -> bool {
+        self.flags & Self::VISIBLE != 0 && self.flags & Self::HIDDEN_AT_START == 0
+    }
     pub const X_COEF: u32 = 0x01;
     pub const Y_COEF: u32 = 0x02;
 

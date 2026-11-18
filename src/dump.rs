@@ -283,10 +283,11 @@ pub fn print_info(g: &GameData, verbose: bool) {
                     .filter(|x| x.layer as usize == li)
                     .count();
                 println!(
-                    "        layer {li}: {:<24} scroll {:.2}/{:.2}, {n} instances",
+                    "        layer {li}: {:<24} scroll {:.2}/{:.2}, {n} instances, flags {:#x}",
                     opt(&l.name),
                     l.x_coefficient,
-                    l.y_coefficient
+                    l.y_coefficient,
+                    l.flags
                 );
             }
         }

@@ -237,6 +237,7 @@ pub(super) struct ObjSnap {
     strings: Vec<String>,
     counter: Value,
     text: String,
+    flags: u32,
 }
 
 /// The state an action could change: its objects, the global values and strings, score and
@@ -383,6 +384,7 @@ impl Runtime {
                     strings: inst.strings.clone(),
                     counter: inst.counter.clone(),
                     text: inst.text.clone(),
+                    flags: inst.flags,
                 })
             })
             .collect();
@@ -439,6 +441,12 @@ impl Runtime {
             }
             if b.counter != a.counter {
                 d.push(format!("counter {} -> {}", b.counter, a.counter));
+            }
+            for bit in 0..32 {
+                let (was, now) = (b.flags >> bit & 1, a.flags >> bit & 1);
+                if was != now {
+                    d.push(format!("flag {bit} {}", if now == 1 { "on" } else { "off" }));
+                }
             }
             if b.text != a.text {
                 d.push(format!("text {} -> {}", short(&b.text), short(&a.text)));

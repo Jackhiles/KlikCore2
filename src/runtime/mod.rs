@@ -475,7 +475,7 @@ impl Runtime {
 
     /// Is layer `layer` (0-based) shown: as the Layer object last set it, else as it starts.
     pub fn layer_visible(&self, layer: usize) -> bool {
-        let start = self.frame().layers.get(layer).is_none_or(|l| l.flags & crate::ctf_loader::frame::Layer::VISIBLE != 0);
+        let start = self.frame().layers.get(layer).is_none_or(|l| l.visible_at_start());
         self.layer_fx.get(&layer).and_then(|f| f.visible).unwrap_or(start)
     }
 
@@ -552,11 +552,13 @@ impl Runtime {
                     i.x as f64,
                     i.y as f64,
                     i.layer.max(0) as usize,
+                    i.handle,
                 )
             })
             .collect();
-        for (oi, x, y, layer) in placed {
+        for (oi, x, y, layer, handle) in placed {
             if let Some(i) = self.create_instance(oi, x, y, layer) {
+                self.instances[i].placement = handle as u32;
                 if let Some(g) = self.globals.get(&oi) {
                     let inst = &mut self.instances[i];
                     inst.values = g.values.clone();

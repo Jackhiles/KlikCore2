@@ -653,6 +653,12 @@ impl Runtime {
         let events = self.events.clone();
         let ix = self.loop_events_index();
         let mut gi = 0;
+        // Input-triggered events ("upon pressing a key", clicks) run last to first: in
+        // the original, one Enter press passes a screen whose first "Enter + flag 0 on"
+        // event needs the flag the next "Enter + flag 0 off" event sets (inferred from a
+        // game's original runtime; no other game in the test library depends on the order).
+        let reversed = self.triggered_pass == Trigger::Input && !self.end_of_frame_pass;
+        let mut queued: Vec<usize> = Vec::new();
         while gi < events.groups.len() {
             let group = &events.groups[gi];
             match ix.info[gi] {
@@ -672,6 +678,11 @@ impl Runtime {
                     }
                 }
             }
+            if reversed {
+                queued.push(gi);
+                gi += 1;
+                continue;
+            }
             let started = self.profile.as_ref().map(|_| std::time::Instant::now());
             self.run_group(gi, group, input);
             if let (Some(p), Some(t)) = (&self.profile, started) {
@@ -684,6 +695,12 @@ impl Runtime {
                 break;
             }
             gi += 1;
+        }
+        for gi in queued.into_iter().rev() {
+            self.run_group(gi, &events.groups[gi], input);
+            if self.pending.is_some() {
+                break;
+            }
         }
     }
 
@@ -941,12 +958,13 @@ impl Runtime {
         }
     }
 
-    /// The (0-based) number of an instance among its object's instances, in creation order
-    /// (expression 46, condition -49; inferred from use: buttons show frames 0, 1, 2 by it,
-    /// and per-instance tables are read with it as the index).
-    pub(crate) fn instance_number(&self, idx: usize) -> i32 {
-        let oi = self.instances[idx].oi;
-        self.instances_of(oi).iter().position(|&i| i == idx).unwrap_or(0) as i32
+    /// The (0-based) number of an instance among those of `oi` (its object, or a group it
+    /// belongs to) in placement order: by frame handle for objects placed in the editor,
+    /// then created ones in creation order (expression 46, condition -49; checked against
+    /// the original runtime: three buttons labelled by it come out in its order).
+    pub(crate) fn instance_number(&self, oi: u16, idx: usize) -> i32 {
+        let me = self.instances[idx].placement;
+        self.instances_of(oi).iter().filter(|&&i| self.instances[i].placement < me).count() as i32
     }
 
     /// Run the child events of parent `parent` (if it is one), in order, each able to take
@@ -1430,7 +1448,7 @@ impl Runtime {
             // Compare the instance's number (see instance_number).
             -49 => {
                 let (cmp, rhs) = self.param_cmp(c, 0, sel, None);
-                self.filter(oi, sel, neg, |rt, _, i| Value::Int(rt.instance_number(i)).compare(cmp, &rhs))
+                self.filter(oi, sel, neg, |rt, _, i| Value::Int(rt.instance_number(oi, i)).compare(cmp, &rhs))
             }
             -8 => {
                 let mask = self.param_i(c, 0, sel, None) as u32;
@@ -2066,7 +2084,8 @@ impl Runtime {
                     111 => fx.visible = Some(true),
                     112 => fx.visible = Some(false),
                     109 => fx.offset[1] = v as f32,
-                    126 => fx.alpha = v.clamp(0, 255) as u8,
+                    // Alpha-blending coefficient, as for objects: 0 opaque, 255 invisible.
+                    126 => fx.alpha = 255 - v.clamp(0, 255) as u8,
                     _ => fx.rgb = [(v & 255) as u8, ((v >> 8) & 255) as u8, ((v >> 16) & 255) as u8],
                 }
                 return;

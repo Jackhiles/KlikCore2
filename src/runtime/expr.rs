@@ -406,7 +406,7 @@ impl<'a> Eval<'a> {
             (_, 29) => inst.shader_param(&a.first().map(|v| v.as_string()).unwrap_or_default()),
             // How many instances are selected now, and this instance's number.
             (_, 45) => Value::Int(rt.candidates(oi, self.sel).len() as i32),
-            (_, 46) => Value::Int(rt.instance_number(idx)),
+            (_, 46) => Value::Int(rt.instance_number(oi, idx)),
             // Text of paragraph N (0-based).
             (ObjectKind::Text, 82) => {
                 let n = a.first().map_or(0, Value::as_i32).max(0) as usize;

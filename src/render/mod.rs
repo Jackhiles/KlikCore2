@@ -23,7 +23,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Layer flag: layer is visible.
-const LAYER_VISIBLE: u32 = 0x10;
 
 #[derive(Debug, Clone, Default)]
 pub struct ViewerOptions {
@@ -1547,7 +1546,7 @@ impl Viewer {
             .map(|i| match frame.layers.get(i) {
                 Some(l) => {
                     let (cx, cy) = l.scroll_coefficients();
-                    let shown = self.rt.layer_fx(i).visible.unwrap_or(l.flags & LAYER_VISIBLE != 0);
+                    let shown = self.rt.layer_fx(i).visible.unwrap_or(l.visible_at_start());
                     (shown, vec2(cx, cy))
                 }
                 None => (true, Vec2::ONE),

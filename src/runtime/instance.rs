@@ -73,6 +73,9 @@ pub struct Instance {
     pub flash: Option<(f64, f64)>,
     /// Shader parameters set by name (shaders aren't run, but games read them back).
     pub shader_params: Vec<(String, Value)>,
+    /// Placement order: the frame's instance handle for objects placed in the editor, after
+    /// those (0x10000 and up) in creation order for objects created while playing.
+    pub placement: u32,
     pub background: bool,
     pub destroyed: bool,
     pub values: Vec<Value>,
@@ -179,6 +182,7 @@ impl Instance {
             visible: true,
             flash: None,
             shader_params: Vec::new(),
+            placement: 0x10000 + id,
             background: false,
             destroyed: false,
             values: Vec::new(),
