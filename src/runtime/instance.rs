@@ -551,9 +551,25 @@ pub fn bounds(g: &GameData, inst: &Instance, obj: &ObjectInfo) -> (f64, f64, f64
         }
         if let Some(d) = &c.counter_display {
             let (w, h) = (d.width as f64, d.height as f64);
-            return match d.kind {
+            return match &d.kind {
                 CounterDisplayKind::HorizontalBar(_) | CounterDisplayKind::VerticalBar(_) => {
                     (inst.x, inst.y, w, h)
+                }
+                // One image per value step: the current image, placed by its hotspot (as it is
+                // drawn), not the box numbers use (a game aims objects at such a counter's
+                // centre and destroys them when they touch it).
+                CounterDisplayKind::Animation(frames) if !frames.is_empty() && inst.kind != ObjectKind::Lives => {
+                    let (min, max) = (inst.counter_min, inst.counter_max);
+                    let fraction = if max > min && max < 1e9 && min > -1e9 {
+                        ((inst.counter.as_f64() - min) / (max - min)).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    let i = ((fraction * (frames.len() - 1) as f64).round() as usize).min(frames.len() - 1);
+                    match g.images.get(frames[i] as u32) {
+                        Some(e) => (inst.x - e.hotspot.0 as f64, inst.y - e.hotspot.1 as f64, e.width as f64, e.height as f64),
+                        None => (inst.x - w, inst.y - h, w, h),
+                    }
                 }
                 _ => (inst.x - w, inst.y - h, w, h),
             };

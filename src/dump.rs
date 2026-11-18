@@ -201,6 +201,17 @@ pub fn print_info(g: &GameData, verbose: bool) {
                 }
                 _ => paras,
             };
+            // Counters: how they show (numbers, bar, text...) and their display size.
+            let paras = match &o.props {
+                klikcore::ctf_loader::properties::ObjectProperties::Common(c) => match &c.counter_display {
+                    Some(d) => {
+                        let kind = format!("{:?}", d.kind).split(['(', ' ']).next().unwrap_or("").to_string();
+                        format!("{paras}  [{kind} {}x{} flags {:#x}]", d.width, d.height, d.flags)
+                    }
+                    None => paras,
+                },
+                _ => paras,
+            };
             // KLIKCORE_EXT_DATA=1: an extension object's stored settings, in hex.
             let paras = match &o.props {
                 klikcore::ctf_loader::properties::ObjectProperties::Common(c) if std::env::var_os("KLIKCORE_EXT_DATA").is_some() => {
