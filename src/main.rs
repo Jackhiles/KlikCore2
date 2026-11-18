@@ -126,6 +126,11 @@ struct Cli {
     #[arg(long, value_name = "FILE|DIR")]
     scenario: Option<PathBuf>,
 
+    /// Sum up an event log (events.log): objects that pile up, values that flip back and
+    /// forth, events undoing each other.
+    #[arg(long, value_name = "FILE")]
+    analyze_log: Option<PathBuf>,
+
     /// Run every frame for N ticks (Enter pressed now and then) and report unsupported features.
     #[arg(long, value_name = "N")]
     sweep: Option<u64>,
@@ -166,6 +171,11 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     klikcore::log::install_panic_hook();
+    if let Some(f) = &cli.analyze_log {
+        let bytes = std::fs::read(f)?;
+        print!("{}", runtime::eventlog::analyze(&String::from_utf8_lossy(&bytes)));
+        return Ok(());
+    }
     if let Some(target) = &cli.scenario {
         return run_scenarios(target);
     }

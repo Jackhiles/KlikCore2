@@ -26,6 +26,8 @@ pub struct AnimState {
     pub stopped: bool,
     /// Set on the tick an animation reaches its end.
     pub finished_anim: Option<usize>,
+    /// The animation played to its end (until it is restarted or changed).
+    pub done: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -334,12 +336,17 @@ impl Instance {
     }
 
     /// Set a (forced) animation, restarting it if it changed.
+    /// "Change animation sequence". Setting the one already showing doesn't replay it
+    /// once it has played to its end (that takes "restart animation"), so its "animation
+    /// is over" event fires once, not every tick while a game keeps setting it.
     pub fn force_anim(&mut self, a: usize) {
         if self.anim.forced_anim != Some(a) {
             self.anim.forced_anim = Some(a);
             self.restart_anim();
         }
-        self.anim.stopped = false;
+        if !self.anim.done {
+            self.anim.stopped = false;
+        }
     }
 
     pub fn restart_anim(&mut self) {
@@ -347,6 +354,7 @@ impl Instance {
         self.anim.counter = 0;
         self.anim.loops = 0;
         self.anim.stopped = false;
+        self.anim.done = false;
     }
 
     /// Advance the animation by one tick.
@@ -398,6 +406,7 @@ impl Instance {
                 } else {
                     self.anim.frame = len - 1;
                     self.anim.stopped = true;
+                    self.anim.done = true;
                     self.anim.finished_anim = Some(self.current_anim_id());
                     break;
                 }

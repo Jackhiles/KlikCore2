@@ -379,6 +379,9 @@ impl Launcher {
                 files.push(("klikcore.log".into(), b));
             }
             if let Ok(b) = std::fs::read(save_root.join("events.log")) {
+                // A first look at the log, so a report says where to start.
+                let summary = crate::runtime::eventlog::analyze(&String::from_utf8_lossy(&b));
+                files.push(("events-summary.txt".into(), summary.into_bytes()));
                 files.push(("events.log".into(), b));
             }
             if let Some(s) = screenshots_for(&e.path, &e.title).into_iter().next() {
@@ -901,7 +904,7 @@ impl Launcher {
     pub(super) fn launch_card(&mut self, p: &mut super::pages::Page, s: &mut Settings) -> bool {
         let mut changed = false;
         self.section_title(p, "LAUNCH");
-        let rows = 4.0;
+        let rows = 5.0;
         rrect(p.x, p.y, p.w, rows * ROW_H, 12.0, CARD());
         let field_w = (p.w * 0.42).min(320.0);
         let fx = p.x + p.w - CARD_PAD - field_w;
@@ -937,6 +940,12 @@ impl Launcher {
         let hint = "Every event and what it changed, saved as events.log (Ctrl+L saves it now)";
         if let Some(k) = self.setting(p, false, "Event log", hint, &opts, s.event_log.min(3) as usize) {
             s.event_log = k as u8;
+            changed = true;
+        }
+        let opts: [&str; 2] = ["Events", "Detailed"];
+        let hint = "Detailed also records objects' own movements and animations (a bigger log)";
+        if let Some(k) = self.setting(p, false, "Event log detail", hint, &opts, s.event_log_detail as usize) {
+            s.event_log_detail = k == 1;
             changed = true;
         }
         p.y += SECTION_GAP;

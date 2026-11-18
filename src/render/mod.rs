@@ -2166,6 +2166,9 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
     if v.rt.event_log.is_none() && opts.screenshot.is_none() {
         if let Some(keep) = crate::runtime::eventlog::Keep::from_choice(opts.settings.event_log) {
             v.rt.start_event_log(keep);
+            if let Some(log) = v.rt.event_log.as_mut() {
+                log.detailed |= opts.settings.event_log_detail;
+            }
             let frame = v.rt.frame_index;
             v.rt.log_frame_start(frame);
         }

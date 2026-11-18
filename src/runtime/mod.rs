@@ -717,6 +717,7 @@ impl Runtime {
         }
         let all_controls = self.effective_controls();
         let controls = all_controls[0].clone();
+        let motion = self.motion_snapshot();
         self.update_platforms(input, &controls);
         if !self.pmo.is_empty() {
             self.update_pmo(input);
@@ -740,6 +741,9 @@ impl Runtime {
             }
             inst.update_animation(obj);
             inst.update_flash(dt);
+        }
+        if let Some(before) = motion {
+            self.log_motion(before);
         }
 
         // Animations that just ended trigger their "animation is over" events.

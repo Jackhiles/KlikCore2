@@ -362,7 +362,11 @@ each action changed (values, positions, visibility, counters, text, created / de
 values given to extensions), with the input of each tick: for the last minute, the last 5 minutes or the whole session.
 It is saved as `events.log` next to the game's saves when the game closes, with Ctrl+L, and when the game pauses after
 errors, and *Report a problem* includes it. Events that change nothing aren't listed, and an event that repeats within a
-tick (fast loops) is shown 5 times and then counted. `KLIKCORE_EVENT_LOG=minute|5|session` turns it on for one run
+tick (fast loops) is shown 5 times and then counted. *Event log detail: Detailed* also records what objects' own movements and
+animations did each tick (who moved where, animations that changed or ended). Reports include `events-summary.txt`, a
+first look at the log: objects created and never removed, values flipping back and forth every tick, things changed
+several times within a tick, objects very far away, huge values and events repeated by fast loops (`klikcore
+--analyze-log events.log` prints it). `KLIKCORE_EVENT_LOG=minute|5|session` turns it on for one run
 (also `--headless` and scenarios), `KLIKCORE_EVENT_LOG_FILE=path` writes it elsewhere.
 
 Debug environment variables: `KLIKCORE_PROFILE=1` makes `--headless` print the slowest events (`KLIKCORE_PROFILE=ace` also the slowest kinds of condition and action);

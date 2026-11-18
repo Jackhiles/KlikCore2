@@ -78,7 +78,12 @@ pub struct EventLog {
     /// Size of the kept lines, and whether old ones were dropped to stay under MAX_BYTES.
     bytes: usize,
     capped: bool,
+    /// Also log what objects' own movements and animations did each tick.
+    pub detailed: bool,
 }
+
+/// At most this many objects' movement / animation changes are listed per tick.
+const MOVES_PER_TICK: usize = 40;
 
 /// How many times an event is logged in full per tick.
 const REPEATS: u32 = 5;
@@ -108,6 +113,7 @@ impl EventLog {
             muted: false,
             bytes: 0,
             capped: false,
+            detailed: std::env::var("KLIKCORE_EVENT_LOG_DETAIL").is_ok_and(|v| v != "0"),
         };
         let head = format!(
             "KlikCore {} event log ({}), started {}",
@@ -273,6 +279,51 @@ impl Runtime {
         self.event_log = Some(EventLog::new(keep, path, self.frame_rate));
     }
 
+    /// Before the objects' own movements and animations run: where everything is (only
+    /// for a detailed log).
+    pub(super) fn motion_snapshot(&self) -> Option<Vec<(u32, f64, f64, usize)>> {
+        if !self.event_log.as_ref().is_some_and(|l| l.detailed) {
+            return None;
+        }
+        Some(self.instances.iter().map(|i| (i.id, i.x, i.y, i.current_anim_id())).collect())
+    }
+
+    /// After them: log who moved and whose animation changed or ended.
+    pub(super) fn log_motion(&mut self, before: Vec<(u32, f64, f64, usize)>) {
+        let mut lines: Vec<String> = Vec::new();
+        let mut more = 0;
+        for (k, (id, x, y, anim)) in before.into_iter().enumerate() {
+            let Some(inst) = self.instances.get(k) else { break };
+            if inst.id != id || inst.destroyed {
+                continue;
+            }
+            let mut d: Vec<String> = Vec::new();
+            if (inst.x, inst.y) != (x, y) {
+                d.push(format!("({x:.0}, {y:.0}) -> ({:.0}, {:.0})", inst.x, inst.y));
+            }
+            if inst.current_anim_id() != anim {
+                d.push(format!("animation {anim} -> {}", inst.current_anim_id()));
+            }
+            if let Some(a) = inst.anim.finished_anim {
+                d.push(format!("animation {a} ended"));
+            }
+            if d.is_empty() {
+                continue;
+            }
+            if lines.len() >= MOVES_PER_TICK {
+                more += 1;
+                continue;
+            }
+            lines.push(format!("  moves: {} {}", self.object_label(k), d.join(", ")));
+        }
+        if more > 0 {
+            lines.push(format!("  moves: ... and {more} more objects"));
+        }
+        for l in lines {
+            self.elog(l);
+        }
+    }
+
     /// Write the event log now; returns its file.
     pub fn save_event_log(&mut self) -> Option<std::io::Result<PathBuf>> {
         let log = self.event_log.as_mut()?;
@@ -425,9 +476,249 @@ impl Runtime {
     }
 }
 
+
+/// Split an object's change list ("value A 1 -> 2, position (1, 2) -> (3, 4), text "a, b"
+/// -> "c"") on the commas between changes, not those inside brackets or quotes.
+fn split_changes(s: &str) -> Vec<&str> {
+    let (mut parts, mut start, mut depth, mut quoted, mut escaped) = (Vec::new(), 0, 0i32, false, false);
+    let b = s.as_bytes();
+    for i in 0..b.len() {
+        let c = b[i];
+        if quoted {
+            match (escaped, c) {
+                (true, _) => escaped = false,
+                (false, b'\\') => escaped = true,
+                (false, b'"') => quoted = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            b'"' => quoted = true,
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b',' if depth == 0 && b.get(i + 1) == Some(&b' ') => {
+                parts.push(&s[start..i]);
+                start = i + 2;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&s[start.min(s.len())..]);
+    parts
+}
+
+/// Look through an event log for signs of trouble (in the game or in KlikCore) and sum
+/// them up: objects created and never removed, values flipping back and forth every
+/// tick, the same thing changed several times in one tick, objects that wandered very far
+/// away, and huge values. For problem reports and `--analyze-log`.
+pub fn analyze(text: &str) -> String {
+    use std::collections::HashMap;
+    let mut tick: u64 = 0;
+    let mut ticks = 0u64;
+    let mut frames: Vec<String> = Vec::new();
+    let mut created: HashMap<String, u32> = HashMap::new();
+    let mut destroyed: HashMap<String, u32> = HashMap::new();
+    // object id -> name, for objects created and not destroyed yet
+    let mut alive: HashMap<String, String> = HashMap::new();
+    // (name, id, field) -> [(tick, old, new)]
+    let mut changes: HashMap<(String, String, String), Vec<(u64, String, String)>> = HashMap::new();
+    let mut far: HashMap<String, (u32, String)> = HashMap::new();
+    let mut huge: Vec<String> = Vec::new();
+    let mut repeats: HashMap<String, (u32, u32)> = HashMap::new();
+
+    // `"name"#id` at the start of `s`: (name, id, rest).
+    fn object(s: &str) -> Option<(&str, &str, &str)> {
+        let s = s.strip_prefix('"')?;
+        let q = s.find("\"#")?;
+        let (name, rest) = (&s[..q], &s[q + 2..]);
+        let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        Some((name, &rest[..end], &rest[end..]))
+    }
+    fn number(s: &str) -> Option<f64> {
+        s.trim().trim_matches(|c| c == '(' || c == ')').split(',').next()?.trim().parse().ok()
+    }
+
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("--- frame ") {
+            ticks += 1;
+            if let Some(t) = rest.split(" tick ").nth(1).and_then(|t| t.split_whitespace().next()).and_then(|t| t.parse().ok()) {
+                tick = t;
+            }
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("== frame ") {
+            frames.push(rest.to_string());
+            continue;
+        }
+        let t = line.trim_start();
+        if let Some(rest) = t.strip_prefix("(event #") {
+            // "(event #N fired M times this tick; ...)"
+            let mut w = rest.split_whitespace();
+            if let (Some(n), Some(m)) = (w.next(), w.nth(1)) {
+                let e = repeats.entry(n.to_string()).or_default();
+                e.0 += 1;
+                e.1 = e.1.max(m.parse().unwrap_or(0));
+            }
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("created ") {
+            if let Some((name, id, _)) = object(rest) {
+                *created.entry(name.to_string()).or_default() += 1;
+                alive.insert(id.to_string(), name.to_string());
+            }
+            continue;
+        }
+        let body = t.strip_prefix("moves: ").unwrap_or(t);
+        let Some((name, id, rest)) = object(body) else { continue };
+        let rest = rest.trim_start_matches(':').trim();
+        for part in split_changes(rest) {
+            if part == "destroyed" {
+                *destroyed.entry(name.to_string()).or_default() += 1;
+                alive.remove(id);
+                continue;
+            }
+            if part == "shown" || part == "hidden" {
+                changes.entry((name.to_string(), id.to_string(), "visibility".into())).or_default().push((tick, String::new(), part.to_string()));
+                continue;
+            }
+            let Some((head, new)) = part.split_once(" -> ") else { continue };
+            // "value C 0", "counter 3", "position (1, 2)", "(1, 2)" (a move), "animation 0"
+            let (field, old) = if head.starts_with('(') {
+                ("position".to_string(), head.to_string())
+            } else if let Some(k) = head.find(['(', '"']) {
+                (head[..k].trim().to_string(), head[k..].to_string())
+            } else {
+                match head.rsplit_once(' ') {
+                    Some((f, o)) => (f.to_string(), o.to_string()),
+                    None => (head.to_string(), String::new()),
+                }
+            };
+            if field == "position" {
+                if let Some((x, y)) = new.trim_matches(|c| c == '(' || c == ')').split_once(", ") {
+                    let (x, y) = (x.trim().parse::<f64>().unwrap_or(0.0), y.trim().parse::<f64>().unwrap_or(0.0));
+                    if x.abs() > 20_000.0 || y.abs() > 20_000.0 {
+                        let e = far.entry(name.to_string()).or_default();
+                        e.0 += 1;
+                        e.1 = format!("({x:.0}, {y:.0})");
+                    }
+                }
+            } else if let Some(v) = number(new) {
+                if v.abs() > 1e8 && huge.len() < 10 {
+                    huge.push(format!("{name}#{id} {field} = {new} (tick {tick})"));
+                }
+            }
+            changes.entry((name.to_string(), id.to_string(), field)).or_default().push((tick, old, new.to_string()));
+        }
+    }
+
+    let mut out = String::new();
+    let section = |title: &str, lines: Vec<String>, out: &mut String| {
+        if !lines.is_empty() {
+            out.push_str(&format!("\n{title}\n"));
+            for l in lines {
+                out.push_str(&format!("  {l}\n"));
+            }
+        }
+    };
+    out.push_str(&format!("Event log summary: {ticks} ticks logged, frames: {}\n", if frames.is_empty() { "-".into() } else { frames.join(", ") }));
+
+    // Created during the log and never removed (by an action).
+    let mut left: HashMap<&str, u32> = HashMap::new();
+    for n in alive.values() {
+        *left.entry(n.as_str()).or_default() += 1;
+    }
+    let mut left: Vec<(&str, u32)> = left.into_iter().filter(|&(_, k)| k >= 3).collect();
+    left.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    section(
+        "Objects created and never removed (3 or more; they may pile up, or leave the screen):",
+        left.iter().take(10).map(|(n, k)| format!("{k} \"{n}\" (created {}, removed {})", created.get(*n).unwrap_or(&0), destroyed.get(*n).unwrap_or(&0))).collect(),
+        &mut out,
+    );
+
+    // A -> B -> A on consecutive ticks.
+    let mut flips: Vec<(u32, String)> = Vec::new();
+    for ((name, id, field), seq) in &changes {
+        let n = seq
+            .windows(2)
+            .filter(|w| w[0].2 == w[1].1 && w[1].2 == w[0].1 && w[0].1 != w[0].2 && w[1].0 <= w[0].0 + 1)
+            .count() as u32;
+        if n >= 20 {
+            let last = seq.last().cloned().unwrap_or_default();
+            flips.push((n, format!("\"{name}\"#{id} {field}: {} <-> {} ({n} times)", last.1, last.2)));
+        }
+    }
+    flips.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    section(
+        "Values flipping back and forth every tick (random choices do this; otherwise events may be fighting):",
+        flips.into_iter().take(10).map(|(_, l)| l).collect(),
+        &mut out,
+    );
+
+    // Changed more than once within one tick (visibility is left out: hiding everything
+    // and then showing some is common).
+    let mut fights: HashMap<(String, String), u32> = HashMap::new();
+    for ((name, _, field), seq) in &changes {
+        if field == "visibility" {
+            continue;
+        }
+        let mut per: HashMap<u64, u32> = HashMap::new();
+        for (t, _, _) in seq {
+            *per.entry(*t).or_default() += 1;
+        }
+        let k = per.values().filter(|&&c| c > 1).count() as u32;
+        if k > 0 {
+            *fights.entry((name.clone(), field.clone())).or_default() += k;
+        }
+    }
+    let mut fights: Vec<((String, String), u32)> = fights.into_iter().filter(|(_, k)| *k >= 30).collect();
+    fights.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    section(
+        "Changed several times within one tick, on many ticks (events undoing each other?):",
+        fights.into_iter().take(10).map(|((n, f), k)| format!("\"{n}\" {f}: on {k} ticks")).collect(),
+        &mut out,
+    );
+
+    let mut far: Vec<(String, (u32, String))> = far.into_iter().collect();
+    far.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(&b.0)));
+    section(
+        "Objects very far from the frame (over 20000 pixels away):",
+        far.into_iter().take(10).map(|(n, (k, at))| format!("\"{n}\" {k} times, last at {at}")).collect(),
+        &mut out,
+    );
+    section("Huge values:", huge, &mut out);
+    let mut rep: Vec<(String, (u32, u32))> = repeats.into_iter().collect();
+    rep.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(&b.0)));
+    section(
+        "Events repeated many times within a tick (fast loops):",
+        rep.into_iter().take(8).map(|(n, (k, m))| format!("event #{n}: on {k} ticks, up to {m} times a tick")).collect(),
+        &mut out,
+    );
+    if !out.contains("\n\n") {
+        out.push_str("\nNothing unusual found.\n");
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analysis_finds_leaks_and_flips() {
+        let mut log = String::from("KlikCore event log\n== frame 0 \"f\"\n");
+        for t in 0..60u64 {
+            log += &format!("--- frame 0 tick {t} (0.00 s)\n");
+            log += &format!("  event #1: System -1\n    Create action 0\n      created \"spark\"#{} at (1, 2) layer 1\n", 100 + t);
+            let (a, b) = if t % 2 == 0 { (1, 4) } else { (4, 1) };
+            log += &format!("    \"pick\" action 80\n      \"pick\"#7: counter {a} -> {b}\n");
+        }
+        log += "      \"spark\"#100: destroyed\n";
+        let s = analyze(&log);
+        assert!(s.contains("59 \"spark\" (created 60, removed 1)"), "{s}");
+        assert!(s.contains("\"pick\"#7 counter"), "{s}");
+        assert!(analyze("--- frame 0 tick 0 (0.00 s)\n").contains("Nothing unusual"));
+    }
 
     #[test]
     fn keep_choices() {
