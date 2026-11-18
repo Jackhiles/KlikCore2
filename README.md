@@ -357,6 +357,14 @@ A scenario recorded in game with Ctrl+R starts like this already, with your inpu
 Run them with `klikcore --scenario FILE_OR_DIR`, or as part of `cargo test` by setting
 `KLIKCORE_SCENARIOS` to the folder (without it the game tests are skipped). See `src/runtime/scenario.rs`.
 
+**Event log:** a game's settings page (Launch > Event log) records every event that fired, the objects it picked and what
+each action changed (values, positions, visibility, counters, text, created / destroyed objects, global values, and the
+values given to extensions), with the input of each tick: for the last minute, the last 5 minutes or the whole session.
+It is saved as `events.log` next to the game's saves when the game closes, with Ctrl+L, and when the game pauses after
+errors, and *Report a problem* includes it. Events that change nothing aren't listed, and an event that repeats within a
+tick (fast loops) is shown 5 times and then counted. `KLIKCORE_EVENT_LOG=minute|5|session` turns it on for one run
+(also `--headless` and scenarios), `KLIKCORE_EVENT_LOG_FILE=path` writes it elsewhere.
+
 Debug environment variables: `KLIKCORE_PROFILE=1` makes `--headless` print the slowest events (`KLIKCORE_PROFILE=ace` also the slowest kinds of condition and action);
 `KLIKCORE_NO_EFFECTS=1` disables distortion effects for comparison. `KLIKCORE_TRACE=N` prints each condition result of event N every tick.
 `KLIKCORE_HUD=compact|full|inspect` shows the overlay (also in screenshots). `KLIKCORE_WALK_FRAMES=MS` shows every frame for MS milliseconds and exits (a memory benchmark; not logged as play time).

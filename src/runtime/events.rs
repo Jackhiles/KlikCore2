@@ -811,7 +811,52 @@ impl Runtime {
             st.fired += 1;
             st.last_fired = Some(tick);
         }
+        // Repeats of an event within a tick are counted, not logged (see `eventlog`).
+        let was_muted = self.event_log.as_ref().is_some_and(|l| l.muted);
+        let logging = match &mut self.event_log {
+            Some(log) => log.event_fired(gi),
+            None => false,
+        };
+        // An event's lines are written once one of its actions has an effect (events
+        // that run every tick without changing anything would fill the log).
+        let mut deferred: Vec<String> = Vec::new();
+        if logging {
+            let mut picked: Vec<String> = sel
+                .iter()
+                .filter(|(_, v)| !v.is_empty())
+                .map(|(&oi, v)| {
+                    let name = self.game.object(oi).map_or_else(|| format!("#{oi}"), |o| o.name.clone());
+                    let ids: Vec<String> = v.iter().take(6).map(|&i| format!("#{}", self.instances[i].id)).collect();
+                    format!("\"{name}\" x{} ({}{})", v.len(), ids.join(" "), if v.len() > 6 { " ..." } else { "" })
+                })
+                .collect();
+            picked.sort();
+            let conds = self.describe_conditions(gi);
+            let picked = if picked.is_empty() { String::new() } else { format!("  picked {}", picked.join(", ")) };
+            deferred.push(format!("  event #{gi}: {conds}{picked}"));
+        }
         for a in &group.actions {
+            let snap = if logging {
+                let owner = if a.object_type < 0 {
+                    self.ace_owner_label(a.object_type)
+                } else {
+                    self.game.object(a.object_info).map_or_else(|| format!("#{}", a.object_info), |o| format!("\"{}\"", o.name))
+                };
+                deferred.push(format!("    {owner} action {}", a.num));
+                // System and extension actions always count (their effects aren't on
+                // objects: loops, sounds, frame changes, an extension's own data).
+                let opaque = a.object_type < 0
+                    || self.game.object(a.object_info).is_some_and(|o| matches!(o.kind, ObjectKind::Extension(_)));
+                if opaque {
+                    for l in deferred.drain(..) {
+                        self.elog(l);
+                    }
+                }
+                let targets = if a.object_type >= 0 { self.candidates(a.object_info, &sel) } else { Vec::new() };
+                Some(self.snapshot(&targets))
+            } else {
+                None
+            };
             let t0 = self.ace_profile.as_ref().map(|_| std::time::Instant::now());
             self.exec_action(a, &mut sel, input);
             if let (Some(p), Some(t0)) = (&self.ace_profile, t0) {
@@ -820,9 +865,25 @@ impl Runtime {
                 e.0 += t0.elapsed();
                 e.1 += 1;
             }
+            // Events this action ran (a loop) may have muted the log: this event's own
+            // lines go on as they started.
+            if let Some(log) = &mut self.event_log {
+                log.muted = !logging;
+            }
+            if let Some(snap) = snap {
+                let changes = self.change_lines(&snap);
+                if !changes.is_empty() {
+                    for l in deferred.drain(..).chain(changes) {
+                        self.elog(l);
+                    }
+                }
+            }
             if self.pending.is_some() {
                 break;
             }
+        }
+        if let Some(log) = &mut self.event_log {
+            log.muted = was_muted;
         }
     }
 
@@ -1831,6 +1892,11 @@ impl Runtime {
             }
             if a.num >= 80 {
                 let (args, _) = self.ext_args(a, sel, cur);
+                // Extensions keep their own data, so the log shows what they were given.
+                if self.event_log.is_some() && !args.is_empty() {
+                    let shown: Vec<String> = args.iter().map(|v| if v.is_str() { format!("{:?}", v.to_string()) } else { v.to_string() }).collect();
+                    self.elog(format!("      with ({})", shown.join(", ")));
+                }
                 let oi = self.instances[idx].oi;
                 let handled = match self.exts.get_mut(&oi) {
                     Some(e) => e.action((a.num - 80) as usize, &args, &self.files),

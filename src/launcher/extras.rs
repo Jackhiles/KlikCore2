@@ -378,6 +378,9 @@ impl Launcher {
             if let Ok(b) = std::fs::read(save_root.join("klikcore.log")) {
                 files.push(("klikcore.log".into(), b));
             }
+            if let Ok(b) = std::fs::read(save_root.join("events.log")) {
+                files.push(("events.log".into(), b));
+            }
             if let Some(s) = screenshots_for(&e.path, &e.title).into_iter().next() {
                 if let Ok(b) = std::fs::read(&s) {
                     files.push((format!("screenshot/{}", s.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), b));
@@ -898,7 +901,7 @@ impl Launcher {
     pub(super) fn launch_card(&mut self, p: &mut super::pages::Page, s: &mut Settings) -> bool {
         let mut changed = false;
         self.section_title(p, "LAUNCH");
-        let rows = 3.0;
+        let rows = 4.0;
         rrect(p.x, p.y, p.w, rows * ROW_H, 12.0, CARD());
         let field_w = (p.w * 0.42).min(320.0);
         let fx = p.x + p.w - CARD_PAD - field_w;
@@ -927,6 +930,13 @@ impl Launcher {
         let row: [(&str, &str, &[&str], usize); 1] = [("Debug panels at start", "Ctrl+G / Ctrl+E in game", &opts, s.panels.min(3) as usize)];
         if let Some(k) = self.setting(p, false, row[0].0, row[0].1, row[0].2, row[0].3) {
             s.panels = k as u8;
+            changed = true;
+        }
+        // Detailed event log.
+        let opts: [&str; 4] = ["Off", "1 min", "5 min", "Session"];
+        let hint = "Every event and what it changed, saved as events.log (Ctrl+L saves it now)";
+        if let Some(k) = self.setting(p, false, "Event log", hint, &opts, s.event_log.min(3) as usize) {
+            s.event_log = k as u8;
             changed = true;
         }
         p.y += SECTION_GAP;

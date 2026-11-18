@@ -384,6 +384,9 @@ pub fn run_scenario(path: &Path) -> Result<ScenarioResult> {
             }
         }
     }
+    if let Some(d) = driver.as_mut() {
+        let _ = d.rt.save_event_log();
+    }
     let _ = std::fs::remove_dir_all(&save_root);
     Ok(result)
 }

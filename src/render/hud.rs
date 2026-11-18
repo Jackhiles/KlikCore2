@@ -307,7 +307,7 @@ impl Viewer {
         drop(un);
 
         // Keys, along the bottom.
-        let keys: [(&str, &str); 18] = [
+        let keys: [(&str, &str); 19] = [
             ("F1", "overlay"),
             ("F2", "pause"),
             ("F3", "step"),
@@ -326,6 +326,7 @@ impl Viewer {
             ("Ctrl G", "variables"),
             ("Ctrl E", "events"),
             ("Ctrl R", "record"),
+            ("Ctrl L", "save event log"),
         ];
         let more: [(&str, &str); 3] = [("Ctrl PgUp/PgDn", "frame"), ("Ctrl 1-0", "layer"), ("Ctrl Q", "quit")];
         let sw = screen_width();

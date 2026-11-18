@@ -492,6 +492,13 @@ fn run_headless(
     for (k, n) in v.iter().take(25) {
         println!("  {n:8}  {k}");
     }
+    drop(un);
+    if let Some(r) = rt.save_event_log() {
+        match r {
+            Ok(p) => println!("event log: {}", p.display()),
+            Err(e) => println!("event log not saved: {e}"),
+        }
+    }
     let _ = std::fs::remove_dir_all(&temp);
 }
 

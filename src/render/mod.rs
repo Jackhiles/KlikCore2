@@ -1204,6 +1204,15 @@ impl Viewer {
         if ctrl && is_key_pressed(KeyCode::E) {
             self.show_events = !self.show_events;
         }
+        // Ctrl+L: write the event log now.
+        if ctrl && is_key_pressed(KeyCode::L) {
+            let text = match self.rt.save_event_log() {
+                Some(Ok(p)) => format!("Event log saved: {}", p.display()),
+                Some(Err(e)) => format!("Could not save the event log: {e}"),
+                None => "The event log is off (game settings: Launch > Event log)".into(),
+            };
+            self.notice = Some((text, get_time() + 4.0));
+        }
         // Ctrl+R: restart the frame and record input into a scenario; again to save it.
         if ctrl && is_key_pressed(KeyCode::R) {
             match self.recorder.take() {
@@ -1416,6 +1425,7 @@ impl Viewer {
                 self.running = false;
                 text += " - paused after repeated errors (F2 resumes)";
                 self.log.line("paused after repeated errors");
+                let _ = self.rt.save_event_log();
             }
             self.notice = Some((text, get_time() + 6.0));
         }
@@ -2153,6 +2163,13 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         mods_plain: Default::default(),
         ai_pack_on: false,
     };
+    if v.rt.event_log.is_none() && opts.screenshot.is_none() {
+        if let Some(keep) = crate::runtime::eventlog::Keep::from_choice(opts.settings.event_log) {
+            v.rt.start_event_log(keep);
+            let frame = v.rt.frame_index;
+            v.rt.log_frame_start(frame);
+        }
+    }
     // Replacement packs for this game.
     let game_file = opts.game_path.clone().unwrap_or_else(|| v.rt.game.path.clone());
     let (full, plain) = if opts.settings.mods {
@@ -2341,6 +2358,9 @@ pub async fn run(game: GameData, opts: ViewerOptions) {
         crate::launcher::playlog::record(&path, &title, started, secs);
     }
     v.log.line(&format!("session ended after {}", crate::launcher::playlog::duration(secs)));
+    if let Some(Ok(p)) = v.rt.save_event_log() {
+        v.log.line(&format!("event log saved to {}", p.display()));
+    }
 }
 
 /// Draw an edit box / list / button / combo box at screen position `p`.

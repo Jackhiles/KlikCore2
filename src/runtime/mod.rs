@@ -12,6 +12,7 @@ pub mod files;
 pub mod save_sync;
 pub mod input;
 pub mod pmo;
+pub mod eventlog;
 pub mod instance;
 pub mod scenario;
 pub mod script;
@@ -268,6 +269,8 @@ pub struct Runtime {
     oi_index: RefCell<Option<HashMap<u16, Vec<usize>>>>,
     /// The current frame's "on loop" events by loop name (built when first needed).
     loop_index: RefCell<Option<Rc<events::LoopIndex>>>,
+    /// Detailed event log (see `eventlog`), when turned on.
+    pub event_log: Option<eventlog::EventLog>,
 }
 
 /// What the Layer object changed about a layer.
@@ -378,11 +381,15 @@ impl Runtime {
             masks: RefCell::new(HashMap::default()),
             oi_index: RefCell::new(None),
             loop_index: RefCell::new(None),
+            event_log: None,
             obstacle_cache: RefCell::new(None),
             profile: std::env::var_os("KLIKCORE_PROFILE").map(|_| RefCell::new(HashMap::default())),
             ace_profile: (std::env::var("KLIKCORE_PROFILE").as_deref() == Ok("ace")).then(|| RefCell::new(HashMap::default())),
         };
         rt.load_frame(start_frame);
+        if let Some(keep) = std::env::var("KLIKCORE_EVENT_LOG").ok().and_then(|v| eventlog::Keep::parse(&v)) {
+            rt.start_event_log(keep);
+        }
         rt
     }
 
@@ -459,6 +466,10 @@ impl Runtime {
         self.loops.clear();
         self.pending = None;
         self.group_just_activated.clear();
+        if self.event_log.is_some() {
+            let name = self.game.frames[self.frame_index].name.clone();
+            self.elog(format!("== frame {} \"{name}\"", self.frame_index));
+        }
         let frame = &self.game.frames[self.frame_index];
         self.transition = frame
             .fade_in
@@ -681,6 +692,28 @@ impl Runtime {
                 }
             }
             return;
+        }
+        if let Some(log) = &mut self.event_log {
+            log.played += 1;
+        }
+        if self.event_log.is_some() {
+            let mut keys: Vec<u16> = input.pressed.iter().copied().collect();
+            keys.sort_unstable();
+            let mut parts: Vec<String> = Vec::new();
+            if !keys.is_empty() {
+                parts.push(format!("pressed {}", keys.iter().map(|&k| ext::ctrlx::name_for_vk(k)).map(|n| if n.is_empty() { "?".into() } else { n }).collect::<Vec<_>>().join(", ")));
+            }
+            for (b, name) in [(0, "left"), (1, "middle"), (2, "right")] {
+                if input.double_clicked[b] {
+                    parts.push(format!("{name} double click"));
+                } else if input.clicked[b] {
+                    parts.push(format!("{name} click"));
+                }
+            }
+            if !parts.is_empty() {
+                parts.push(format!("mouse at ({:.0}, {:.0})", input.mouse.0, input.mouse.1));
+                self.elog(format!("  input: {}", parts.join(", ")));
+            }
         }
         let all_controls = self.effective_controls();
         let controls = all_controls[0].clone();
