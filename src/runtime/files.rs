@@ -41,6 +41,18 @@ fn norm(p: &str) -> String {
 /// Default save folder for a game title: %APPDATA%\KlikCore\<title> (or ~/.local/share/KlikCore/<title>).
 /// A text file's contents as a string: UTF-16 (little or big endian) or UTF-8 when it starts
 /// with that byte-order mark, otherwise UTF-8 (invalid bytes replaced).
+/// Open a web address in the default browser. On Windows through the URL handler
+/// (`explorer` fails on long addresses with a query, like a new-issue link with its text).
+pub fn open_web(url: &str) -> std::io::Result<()> {
+    #[cfg(windows)]
+    let r = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn();
+    #[cfg(target_os = "macos")]
+    let r = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let r = std::process::Command::new("xdg-open").arg(url).spawn();
+    r.map(|_| ())
+}
+
 pub fn decode_text(b: &[u8]) -> String {
     let utf16 = |b: &[u8], be: bool| {
         let units: Vec<u16> = b

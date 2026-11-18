@@ -128,8 +128,7 @@ impl Extension for BigBox {
         let url = arg_s(args, 0);
         // Only web addresses (a game can't start programs this way).
         if url.starts_with("http://") || url.starts_with("https://") {
-            let opener = if cfg!(windows) { "explorer" } else if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-            let _ = std::process::Command::new(opener).arg(&url).spawn();
+            let _ = crate::runtime::files::open_web(&url);
         }
         true
     }

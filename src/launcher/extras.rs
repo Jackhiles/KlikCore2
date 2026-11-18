@@ -59,7 +59,7 @@ fn open_url(url: &str) {
     #[cfg(target_os = "android")]
     crate::android::open_url(url);
     #[cfg(not(target_os = "android"))]
-    open_path(Path::new(url));
+    let _ = crate::runtime::files::open_web(url);
 }
 
 fn open_path(p: &Path) {
