@@ -441,6 +441,38 @@ impl Runtime {
         c
     }
 
+    /// Fusion destroys objects that move too far from the frame, unless they're set to
+    /// stay (object flag 0x2000). Only objects that moved this tick are checked (helpers
+    /// parked off-screen stay); "too far" is entirely outside the frame by more than the
+    /// window's size (inferred: objects flying away while pasting trails, or particles,
+    /// piled up by the thousand).
+    fn destroy_far_objects(&mut self) {
+        const NEVER_DESTROY: u32 = 0x2000;
+        let f = self.frame();
+        let (fw, fh) = (f.width as f64, f.height as f64);
+        let (mw, mh) = self.view_size;
+        let mut far: Vec<usize> = Vec::new();
+        for (i, inst) in self.instances.iter().enumerate() {
+            if inst.destroyed || inst.background || inst.pasted || (inst.x, inst.y) == inst.movement.prev {
+                continue;
+            }
+            let keep = match self.game.object(inst.oi).map(|o| &o.props) {
+                Some(ObjectProperties::Common(c)) => c.flags & NEVER_DESTROY != 0,
+                _ => true,
+            };
+            if keep {
+                continue;
+            }
+            let (x, y, w, h) = self.bounds_of(i);
+            if x + w < -mw || x > fw + mw || y + h < -mh || y > fh + mh {
+                far.push(i);
+            }
+        }
+        for i in far {
+            self.instances[i].destroyed = true;
+        }
+    }
+
     /// Is layer `layer` (0-based) shown: as the Layer object last set it, else as it starts.
     pub fn layer_visible(&self, layer: usize) -> bool {
         let start = self.frame().layers.get(layer).is_none_or(|l| l.flags & crate::ctf_loader::frame::Layer::VISIBLE != 0);
@@ -789,6 +821,7 @@ impl Runtime {
             w.clear_events();
         }
 
+        self.destroy_far_objects();
         self.tick += 1;
         self.prev_timer_ms = self.timer_ms;
         self.timer_ms += 1000.0 / self.frame_rate as f64;
@@ -1011,6 +1044,25 @@ impl Runtime {
         let Some(handle) = self.instances[idx].current_image(obj) else {
             return;
         };
+        // Pasting draws onto the background in Fusion, so pasting the same image at the same
+        // place again changes nothing: the old copy is replaced, not stacked (games paste
+        // every tick, and thousands of identical copies piled up).
+        // Outside the frame there is no background to draw on.
+        let (bx, by, bw, bh) = self.bounds_of(idx);
+        let (fw, fh) = (self.frame().width as f64, self.frame().height as f64);
+        if bx + bw <= 0.0 || by + bh <= 0.0 || bx >= fw || by >= fh {
+            return;
+        }
+        let (x, y, layer) = (self.instances[idx].x, self.instances[idx].y, self.instances[idx].layer);
+        let (sx, sy, angle, ink) = (self.instances[idx].scale_x, self.instances[idx].scale_y, self.instances[idx].angle, self.instances[idx].ink_effect);
+        for old in self.instances.iter_mut().filter(|i| i.pasted && !i.destroyed) {
+            if matches!(old.visual, Visual::Image { handle: h } if h == handle)
+                && (old.x, old.y, old.layer, old.obstacle) == (x, y, layer, obstacle)
+                && (old.scale_x, old.scale_y, old.angle, old.ink_effect) == (sx, sy, angle, ink)
+            {
+                old.destroyed = true;
+            }
+        }
         let mut copy = self.instances[idx].clone();
         copy.id = self.next_id;
         self.next_id += 1;
