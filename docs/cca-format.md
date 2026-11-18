@@ -73,6 +73,7 @@ After the thumbnail, a frame is a run of blocks: `u16 kind, u32 size, payload`.
 
 Active objects' properties: a few fixed fields, then a movement block `SPRI` (`u32 size`,
 movement type: 0 static, 4 ball, …, then its settings, e.g. the speed), then the animations:
+  Ball settings are i16s from the movement's offset 10: speed, randomizer, angles, security, deceleration (deceleration matched against a game's Fusion rebuild).
 
 - `u16 size, u16 ?, i16 offsets[16]` (from the start of this header; unused ones negative);
 - each animation: `i16 direction offsets[32]` (from the animation's start; unused ones negative);

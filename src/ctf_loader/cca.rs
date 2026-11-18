@@ -602,7 +602,9 @@ fn read_active(p: &[u8], c: &mut ObjectCommon) {
             randomizer: i16_at(p, mv + 12).unwrap_or(0),
             angles: i16_at(p, mv + 14).unwrap_or(2),
             security: i16_at(p, mv + 16).unwrap_or(0),
-            deceleration: 0,
+            // After the security setting (matched against the game's Fusion rebuild: the
+            // same objects have the same deceleration there).
+            deceleration: i16_at(p, mv + 18).unwrap_or(0).clamp(0, 100),
         },
         _ => MovementKind::Static,
     };
