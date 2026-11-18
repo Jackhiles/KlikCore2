@@ -430,11 +430,21 @@ impl Instance {
             return;
         };
         match &m.kind {
-            MovementKind::Ball { .. } => {
+            MovementKind::Ball { deceleration, .. } => {
                 let s = self.current_speed() * SPEED_TO_PIXELS;
                 if s > 0.0 {
                     let a = dir_to_angle(self.direction());
                     self.shift(a.cos() * s, -a.sin() * s);
+                }
+                // Deceleration (0-100) slows the ball until it stops; games remove sparks
+                // and debris when they've stopped. Scale inferred (deceleration / 15 speed
+                // units per tick): a spark at speed 20 with deceleration 15 stops in ~1/3 s.
+                if *deceleration > 0 && !self.movement.stopped {
+                    let d = *deceleration as f64 / 15.0;
+                    match &mut self.movement.forced_speed {
+                        Some(f) => *f = (*f - d).max(0.0),
+                        None => self.movement.speed = (self.movement.speed - d).max(0.0),
+                    }
                 }
             }
             MovementKind::EightDirections {

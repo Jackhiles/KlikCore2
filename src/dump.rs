@@ -169,7 +169,10 @@ pub fn print_info(g: &GameData, verbose: bool) {
                             let name = format!("{:?}", m.kind).split([' ', '{', '(']).next().unwrap_or("").to_string();
                             let speed = match &m.kind {
                                 klikcore::ctf_loader::properties::MovementKind::EightDirections { speed, .. }
-                                | klikcore::ctf_loader::properties::MovementKind::Ball { speed, .. } => format!(" speed {speed}"),
+                                => format!(" speed {speed}"),
+                                klikcore::ctf_loader::properties::MovementKind::Ball { speed, deceleration, randomizer, angles, .. } => {
+                                    format!(" speed {speed} decel {deceleration} random {randomizer} angles {angles}")
+                                }
                                 klikcore::ctf_loader::properties::MovementKind::Mouse { x1, x2, y1, y2 } => format!(" area x {x1}..{x2} y {y1}..{y2}"),
                                 klikcore::ctf_loader::properties::MovementKind::Path { steps, looping, reverse_at_end, reposition_at_end, .. } => format!(
                                     " {} steps ({}){}{}{}",
