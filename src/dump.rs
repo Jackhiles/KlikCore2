@@ -171,6 +171,14 @@ pub fn print_info(g: &GameData, verbose: bool) {
                                 klikcore::ctf_loader::properties::MovementKind::EightDirections { speed, .. }
                                 | klikcore::ctf_loader::properties::MovementKind::Ball { speed, .. } => format!(" speed {speed}"),
                                 klikcore::ctf_loader::properties::MovementKind::Mouse { x1, x2, y1, y2 } => format!(" area x {x1}..{x2} y {y1}..{y2}"),
+                                klikcore::ctf_loader::properties::MovementKind::Path { steps, looping, reverse_at_end, reposition_at_end, .. } => format!(
+                                    " {} steps ({}){}{}{}",
+                                    steps.len(),
+                                    steps.iter().take(4).map(|s| format!("{},{} speed {} pause {}", s.dx, s.dy, s.speed, s.pause)).collect::<Vec<_>>().join("; "),
+                                    if *looping { " loop" } else { "" },
+                                    if *reverse_at_end { " reverse" } else { "" },
+                                    if *reposition_at_end { " reposition" } else { "" }
+                                ),
                                 _ => String::new(),
                             };
                             format!("{name}{speed}{}{}", if m.player > 0 { format!(" p{}", m.player) } else { String::new() }, if m.moving_at_start { "" } else { " stopped" })
@@ -210,6 +218,13 @@ pub fn print_info(g: &GameData, verbose: bool) {
                     }
                     None => paras,
                 },
+                _ => paras,
+            };
+            // KLIKCORE_OBJ_FLAGS=1: the object's stored flag words.
+            let paras = match &o.props {
+                klikcore::ctf_loader::properties::ObjectProperties::Common(c) if std::env::var_os("KLIKCORE_OBJ_FLAGS").is_some() => {
+                    format!("{paras}  flags {:#010x} new {:#06x}", c.flags, c.new_flags)
+                }
                 _ => paras,
             };
             // KLIKCORE_EXT_DATA=1: an extension object's stored settings, in hex.
